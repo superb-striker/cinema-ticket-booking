@@ -16,7 +16,14 @@ func main() {
 
 	mux.Handle("GET /", http.FileServer(http.Dir("static")))
 
-	store := booking.NewRedisStore(redis.NewClient("localhost:6379"))
+	rdb, err := redis.NewClient("localhost:6379")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rdb.Close()
+	log.Println("connected to redis")
+
+	store := booking.NewRedisStore(rdb)
 	svc := booking.NewService(store)
 
 	bookingHandler := booking.NewHandler(svc)
