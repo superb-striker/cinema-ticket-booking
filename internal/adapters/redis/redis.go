@@ -10,8 +10,13 @@ import (
 
 // NewClient connects to Redis and returns an error instead of exiting, so callers decide how to handle failure.
 func NewClient(addr string) (*goredis.Client, error) {
+	return NewClientWithPassword(addr, "")
+}
+
+func NewClientWithPassword(addr, password string) (*goredis.Client, error) {
 	rdb := goredis.NewClient(&goredis.Options{
 		Addr:         addr,
+		Password:     password,
 		DialTimeout:  3 * time.Second,
 		ReadTimeout:  2 * time.Second,
 		WriteTimeout: 2 * time.Second,
