@@ -1,56 +1,97 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/superb-striker/cinema/internal/adapters/redis"
-	"github.com/superb-striker/cinema/internal/booking"
+	"github.com/superb-striker/cinema/internal/auth"
+	"github.com/superb-striker/cinema/internal/checkout"
+	"github.com/superb-striker/cinema/internal/config"
+	"github.com/superb-striker/cinema/internal/database"
 	"github.com/superb-striker/cinema/internal/utils"
 )
 
 func main() {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /movies", listMovies)
-
-	mux.Handle("GET /", http.FileServer(http.Dir("static")))
-
-	rdb, err := redis.NewClient("localhost:6379")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	db, err := database.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	rdb, err := redis.NewClientWithPassword(cfg.RedisAddr, cfg.RedisPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer rdb.Close()
-	log.Println("connected to redis")
 
-	store := booking.NewRedisStore(rdb)
-	svc := booking.NewService(store)
+	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure)
+	authHandler := auth.NewHandler(authService)
+	repo := checkout.NewPostgresRepository(db)
+	holds := checkout.NewRedisHoldStore(rdb)
+	payments := checkout.NewRazorpay(cfg.RazorpayKeyID, cfg.RazorpayKeySecret, cfg.RazorpayWebhookSecret)
+	checkoutService := checkout.NewService(repo, holds, payments, cfg.HoldTTL)
+	checkoutHandler := checkout.NewHandler(checkoutService, repo, payments)
 
-	bookingHandler := booking.NewHandler(svc)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
+	mux.Handle("GET /api/v1/auth/me", authService.Require(http.HandlerFunc(authHandler.Me)))
+	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
+	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
+	mux.Handle("POST /api/v1/screenings/{screeningID}/holds", authService.Require(http.HandlerFunc(checkoutHandler.CreateHold)))
+	mux.Handle("POST /api/v1/screenings/{screeningID}/holds/{holdID}/checkout", authService.Require(http.HandlerFunc(checkoutHandler.Checkout)))
+	mux.Handle("GET /api/v1/orders/{orderID}", authService.Require(http.HandlerFunc(checkoutHandler.Order)))
+	mux.Handle("POST /api/v1/orders/{orderID}/verify-payment", authService.Require(http.HandlerFunc(checkoutHandler.VerifyPayment)))
+	mux.HandleFunc("POST /api/v1/webhooks/razorpay", checkoutHandler.Webhook)
+	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
+		utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
+		checkCtx, done := context.WithTimeout(r.Context(), 2*time.Second)
+		defer done()
+		if err := db.Ping(checkCtx); err != nil || rdb.Ping(checkCtx).Err() != nil {
+			utils.WriteError(w, http.StatusServiceUnavailable, "not ready")
+			return
+		}
+		utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
+	mux.Handle("GET /", http.FileServer(http.Dir("static")))
 
-	mux.HandleFunc("GET /movies/{movieID}/seats", bookingHandler.ListSeats)
-	mux.HandleFunc("POST /movies/{movieID}/seats/{seatID}/hold", bookingHandler.HoldSeat)
-
-	mux.HandleFunc("PUT /sessions/{sessionID}/confirm", bookingHandler.ConfirmSession)
-	mux.HandleFunc("DELETE /sessions/{sessionID}", bookingHandler.ReleaseSession)
-
-	if err := http.ListenAndServe(":8080", mux); err != nil {
-		log.Fatal(err)
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: securityHeaders(mux), ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	go func() {
+		log.Printf("cinema API listening on %s", cfg.HTTPAddr)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("serve: %v", err)
+		}
+	}()
+	<-ctx.Done()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("graceful shutdown: %v", err)
 	}
 }
 
-var movies = []movieResponse{
-	{ID: "inception", Title: "Inception", Rows: 5, SeatsPerRow: 8},
-	{ID: "dune", Title: "Dune: Part Two", Rows: 4, SeatsPerRow: 6},
-}
-
-func listMovies(w http.ResponseWriter, r *http.Request) {
-	utils.WriteJSON(w, http.StatusOK, movies)
-}
-
-type movieResponse struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Rows        int    `json:"rows"`
-	SeatsPerRow int    `json:"seats_per_row"`
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://checkout.razorpay.com; frame-src https://api.razorpay.com https://*.razorpay.com; connect-src 'self' https://api.razorpay.com; style-src 'self' 'unsafe-inline'")
+		next.ServeHTTP(w, r)
+	})
 }
