@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -254,12 +255,103 @@ func (p *PostgresRepository) Order(ctx context.Context, orderID, userID uuid.UUI
 }
 
 func (p *PostgresRepository) expireOrders(ctx context.Context) error {
-	_, err := p.db.Exec(ctx, `WITH expired AS (
+	_, err := p.ExpireOrders(ctx)
+	return err
+}
+
+func (p *PostgresRepository) ExpireOrders(ctx context.Context) (int64, error) {
+	tag, err := p.db.Exec(ctx, `WITH expired AS (
 		UPDATE orders SET status='expired',updated_at=now()
 		WHERE status='payment_pending' AND expires_at <= now() RETURNING id)
 		UPDATE order_seats SET status='released' WHERE order_id IN (SELECT id FROM expired)`)
+	return tag.RowsAffected(), err
+}
+
+func (p *PostgresRepository) ClaimRefund(ctx context.Context, lease time.Duration) (RefundAction, bool, error) {
+	var action RefundAction
+	err := p.db.QueryRow(ctx, `WITH candidate AS (
+		SELECT pa.id FROM payment_actions pa
+		WHERE pa.action='refund' AND pa.status IN ('pending','failed')
+		  AND pa.next_attempt_at <= now()
+		  AND (pa.locked_until IS NULL OR pa.locked_until < now())
+		ORDER BY pa.next_attempt_at, pa.created_at
+		FOR UPDATE SKIP LOCKED LIMIT 1
+	), claimed AS (
+		UPDATE payment_actions pa SET status='processing', attempts=attempts+1,
+			locked_until=now()+$1::interval, updated_at=now()
+		FROM candidate c WHERE pa.id=c.id
+		RETURNING pa.id,pa.order_id,pa.attempts
+	)
+	SELECT c.id,c.order_id,o.provider_payment_id,o.amount_paise,c.attempts
+	FROM claimed c JOIN orders o ON o.id=c.order_id`, durationInterval(lease)).Scan(
+		&action.ID, &action.OrderID, &action.ProviderPaymentID, &action.AmountPaise, &action.Attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RefundAction{}, false, nil
+	}
+	return action, err == nil, err
+}
+
+func (p *PostgresRepository) CompleteRefund(ctx context.Context, action RefundAction, providerRefundID string) error {
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE payment_actions SET status='completed',provider_action_id=$2,
+		locked_until=NULL,last_error=NULL,updated_at=now() WHERE id=$1 AND status='processing'`, action.ID, providerRefundID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errors.New("refund action lease was lost")
+	}
+	if _, err = tx.Exec(ctx, `UPDATE orders SET status='refunded',updated_at=now() WHERE id=$1 AND status='refund_pending'`, action.OrderID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *PostgresRepository) RetryRefund(ctx context.Context, action RefundAction, message string, next time.Time) error {
+	_, err := p.db.Exec(ctx, `UPDATE payment_actions SET status='failed',locked_until=NULL,last_error=$2,
+		next_attempt_at=$3,updated_at=now() WHERE id=$1 AND status='processing'`, action.ID, message, next)
 	return err
 }
+
+func (p *PostgresRepository) ClaimReconciliation(ctx context.Context, lease time.Duration) (Order, bool, error) {
+	var order Order
+	err := p.db.QueryRow(ctx, `WITH candidate AS (
+		SELECT id FROM orders WHERE provider_order_id IS NOT NULL
+		  AND status IN ('payment_pending','expired','payment_failed')
+		  AND created_at > now()-interval '7 days' AND next_reconcile_at <= now()
+		  AND (reconcile_locked_until IS NULL OR reconcile_locked_until < now())
+		ORDER BY next_reconcile_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1
+	), claimed AS (
+		UPDATE orders o SET reconciliation_attempts=reconciliation_attempts+1,
+			reconcile_locked_until=now()+$1::interval,updated_at=now()
+		FROM candidate c WHERE o.id=c.id RETURNING o.*)
+	SELECT id,screening_id,user_id,hold_id,status,amount_paise,currency,provider,
+		provider_order_id,COALESCE(provider_payment_id,''),expires_at,reconciliation_attempts
+	FROM claimed`, durationInterval(lease)).Scan(&order.ID, &order.ScreeningID, &order.UserID, &order.HoldID,
+		&order.Status, &order.AmountPaise, &order.Currency, &order.Provider, &order.ProviderOrderID,
+		&order.ProviderPaymentID, &order.ExpiresAt, &order.ReconciliationAttempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Order{}, false, nil
+	}
+	return order, err == nil, err
+}
+
+func (p *PostgresRepository) CompleteReconciliation(ctx context.Context, order Order) error {
+	_, err := p.db.Exec(ctx, `UPDATE orders SET reconcile_locked_until=NULL,next_reconcile_at=now()+interval '7 days'
+		WHERE id=$1`, order.ID)
+	return err
+}
+
+func (p *PostgresRepository) RetryReconciliation(ctx context.Context, order Order, next time.Time) error {
+	_, err := p.db.Exec(ctx, `UPDATE orders SET reconcile_locked_until=NULL,next_reconcile_at=$2 WHERE id=$1`, order.ID, next)
+	return err
+}
+
+func durationInterval(d time.Duration) string { return fmt.Sprintf("%f seconds", d.Seconds()) }
 
 func (p *PostgresRepository) ConfirmPayment(ctx context.Context, event PaymentEvent) (bool, error) {
 	tx, err := p.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})

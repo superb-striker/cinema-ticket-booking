@@ -49,16 +49,17 @@ type Hold struct {
 type Order struct {
 	ID                uuid.UUID `json:"id"`
 	ScreeningID       uuid.UUID `json:"screening_id"`
-	UserID            uuid.UUID `json:"user_id"`
-	HoldID            uuid.UUID `json:"hold_id"`
-	SeatIDs           []string  `json:"seat_ids"`
-	Status            string    `json:"status"`
-	AmountPaise       int64     `json:"amount_paise"`
-	Currency          string    `json:"currency"`
-	Provider          string    `json:"provider"`
-	ProviderOrderID   string    `json:"provider_order_id,omitempty"`
-	ProviderPaymentID string    `json:"provider_payment_id,omitempty"`
-	ExpiresAt         time.Time `json:"expires_at"`
+	UserID                 uuid.UUID `json:"user_id"`
+	HoldID                 uuid.UUID `json:"hold_id"`
+	SeatIDs                []string  `json:"seat_ids"`
+	Status                 string    `json:"status"`
+	AmountPaise            int64     `json:"amount_paise"`
+	Currency               string    `json:"currency"`
+	Provider               string    `json:"provider"`
+	ProviderOrderID        string    `json:"provider_order_id,omitempty"`
+	ProviderPaymentID      string    `json:"provider_payment_id,omitempty"`
+	ExpiresAt              time.Time `json:"expires_at"`
+	ReconciliationAttempts int       `json:"-"`
 }
 
 type Repository interface {
@@ -71,6 +72,13 @@ type Repository interface {
 	FailOrder(context.Context, uuid.UUID) error
 	Order(context.Context, uuid.UUID, uuid.UUID) (Order, error)
 	ConfirmPayment(context.Context, PaymentEvent) (bool, error)
+	ExpireOrders(context.Context) (int64, error)
+	ClaimRefund(context.Context, time.Duration) (RefundAction, bool, error)
+	CompleteRefund(context.Context, RefundAction, string) error
+	RetryRefund(context.Context, RefundAction, string, time.Time) error
+	ClaimReconciliation(context.Context, time.Duration) (Order, bool, error)
+	CompleteReconciliation(context.Context, Order) error
+	RetryReconciliation(context.Context, Order, time.Time) error
 }
 
 type HoldStore interface {
