@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -66,6 +67,113 @@ func (r *Razorpay) CreateOrder(ctx context.Context, order Order) (PaymentOrder, 
 		return PaymentOrder{}, errors.New("razorpay returned an empty order id")
 	}
 	return PaymentOrder{ID: result.ID, Amount: result.Amount, Currency: result.Currency}, nil
+}
+
+func (r *Razorpay) CapturedPayment(ctx context.Context, providerOrderID string) (PaymentEvent, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		r.baseURL+"/orders/"+url.PathEscape(providerOrderID)+"/payments", nil)
+	if err != nil {
+		return PaymentEvent{}, false, err
+	}
+	var response struct {
+		Items []struct {
+			ID       string `json:"id"`
+			OrderID  string `json:"order_id"`
+			Status   string `json:"status"`
+			Amount   int64  `json:"amount"`
+			Currency string `json:"currency"`
+		} `json:"items"`
+	}
+	if err := r.doJSON(req, &response); err != nil {
+		return PaymentEvent{}, false, err
+	}
+	for _, payment := range response.Items {
+		if payment.Status != "captured" || payment.OrderID != providerOrderID {
+			continue
+		}
+		raw, _ := json.Marshal(payment)
+		return PaymentEvent{ID: "reconcile:" + payment.ID, Type: "payment.captured", ProviderOrderID: payment.OrderID,
+			PaymentID: payment.ID, AmountPaise: payment.Amount, Currency: payment.Currency, Raw: raw}, true, nil
+	}
+	return PaymentEvent{}, false, nil
+}
+
+func (r *Razorpay) Refund(ctx context.Context, action RefundAction) (string, error) {
+	if id, ok, err := r.findRefund(ctx, action); err != nil {
+		return "", err
+	} else if ok {
+		return id, nil
+	}
+	body, err := json.Marshal(map[string]any{"amount": action.AmountPaise,
+		"notes": map[string]string{"refund_action_id": action.ID.String(), "internal_order_id": action.OrderID.String(), "reason": "late_payment_after_seat_release"}})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.baseURL+"/payments/"+
+		url.PathEscape(action.ProviderPaymentID)+"/refund", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	var response struct {
+		ID        string `json:"id"`
+		PaymentID string `json:"payment_id"`
+		Amount    int64  `json:"amount"`
+	}
+	if err := r.doJSON(req, &response); err != nil {
+		return "", err
+	}
+	if response.ID == "" || response.PaymentID != action.ProviderPaymentID || response.Amount != action.AmountPaise {
+		return "", errors.New("razorpay returned a mismatched refund")
+	}
+	return response.ID, nil
+}
+
+func (r *Razorpay) findRefund(ctx context.Context, action RefundAction) (string, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+"/payments/"+
+		url.PathEscape(action.ProviderPaymentID)+"/refunds", nil)
+	if err != nil {
+		return "", false, err
+	}
+	var response struct {
+		Items []struct {
+			ID        string            `json:"id"`
+			PaymentID string            `json:"payment_id"`
+			Amount    int64             `json:"amount"`
+			Notes     map[string]string `json:"notes"`
+		} `json:"items"`
+	}
+	if err := r.doJSON(req, &response); err != nil {
+		return "", false, err
+	}
+	for _, refund := range response.Items {
+		if refund.Notes["refund_action_id"] == action.ID.String() {
+			if refund.PaymentID != action.ProviderPaymentID || refund.Amount != action.AmountPaise {
+				return "", false, errors.New("existing Razorpay refund does not match action")
+			}
+			return refund.ID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (r *Razorpay) doJSON(req *http.Request, dst any) error {
+	req.SetBasicAuth(r.keyID, r.keySecret)
+	req.Header.Set("Accept", "application/json")
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("razorpay request: %w", err)
+	}
+	defer resp.Body.Close()
+	limited := io.LimitReader(resp.Body, 1<<20)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, limited)
+		return fmt.Errorf("razorpay returned HTTP %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(limited).Decode(dst); err != nil {
+		return fmt.Errorf("decode razorpay response: %w", err)
+	}
+	return nil
 }
 
 func (r *Razorpay) VerifyWebhook(body []byte, signature string) bool {

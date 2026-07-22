@@ -88,6 +88,16 @@ type PaymentOrder struct {
 
 type PaymentProvider interface {
 	CreateOrder(context.Context, Order) (PaymentOrder, error)
+	CapturedPayment(context.Context, string) (PaymentEvent, bool, error)
+	Refund(context.Context, RefundAction) (string, error)
+}
+
+type RefundAction struct {
+	ID                uuid.UUID
+	OrderID           uuid.UUID
+	ProviderPaymentID string
+	AmountPaise       int64
+	Attempts          int
 }
 
 type PaymentEvent struct {

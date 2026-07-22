@@ -4,7 +4,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func sign(secret string, body []byte) string {
@@ -40,5 +44,47 @@ func TestPaymentCallbackSignature(t *testing.T) {
 	payload := []byte("order_1|pay_1")
 	if !r.VerifyPaymentSignature("order_1", "pay_1", sign("api-secret", payload)) {
 		t.Fatal("valid callback signature rejected")
+	}
+}
+
+func TestCapturedPaymentFetchesCapturedOrderPayment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orders/order_1/payments" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"items":[{"id":"pay_1","order_id":"order_1","status":"captured","amount":70000,"currency":"INR"}]}`))
+	}))
+	defer server.Close()
+	r := NewRazorpay("key", "secret", "webhook")
+	r.baseURL = server.URL
+	event, ok, err := r.CapturedPayment(t.Context(), "order_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || event.PaymentID != "pay_1" || event.AmountPaise != 70000 {
+		t.Fatalf("unexpected event: %+v %v", event, ok)
+	}
+}
+
+func TestRefundReusesExistingReceipt(t *testing.T) {
+	posts := 0
+	action := RefundAction{ID: uuid.MustParse("44b47a9d-0590-44dc-b99d-5b3eb23464b6"), OrderID: uuid.New(), ProviderPaymentID: "pay_1", AmountPaise: 70000}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"items":[{"id":"rfnd_1","payment_id":"pay_1","notes":{"refund_action_id":"44b47a9d-0590-44dc-b99d-5b3eb23464b6"},"amount":70000}]}`))
+	}))
+	defer server.Close()
+	r := NewRazorpay("key", "secret", "webhook")
+	r.baseURL = server.URL
+	id, err := r.Refund(t.Context(), action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "rfnd_1" || posts != 0 {
+		t.Fatalf("id=%q posts=%d", id, posts)
 	}
 }
