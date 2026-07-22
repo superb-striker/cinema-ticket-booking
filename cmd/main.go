@@ -43,6 +43,8 @@ func main() {
 	payments := checkout.NewRazorpay(cfg.RazorpayKeyID, cfg.RazorpayKeySecret, cfg.RazorpayWebhookSecret)
 	checkoutService := checkout.NewService(repo, holds, payments, cfg.HoldTTL)
 	checkoutHandler := checkout.NewHandler(checkoutService, repo, payments)
+	worker := checkout.NewWorker(repo, payments, cfg.WorkerInterval)
+	go worker.Run(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)

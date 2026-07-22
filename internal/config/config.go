@@ -15,6 +15,7 @@ type Config struct {
 	CookieSecure          bool
 	SessionTTL            time.Duration
 	HoldTTL               time.Duration
+	WorkerInterval        time.Duration
 	RazorpayKeyID         string
 	RazorpayKeySecret     string
 	RazorpayWebhookSecret string
@@ -29,6 +30,7 @@ func Load() (Config, error) {
 		CookieSecure:          envBool("COOKIE_SECURE", true),
 		SessionTTL:            30 * 24 * time.Hour,
 		HoldTTL:               10 * time.Minute,
+		WorkerInterval:        10 * time.Second,
 		RazorpayKeyID:         os.Getenv("RAZORPAY_KEY_ID"),
 		RazorpayKeySecret:     os.Getenv("RAZORPAY_KEY_SECRET"),
 		RazorpayWebhookSecret: os.Getenv("RAZORPAY_WEBHOOK_SECRET"),
