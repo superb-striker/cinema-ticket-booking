@@ -39,6 +39,7 @@ func main() {
 
 	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure)
 	authHandler := auth.NewHandler(authService)
+	go authService.RunMaintenance(ctx, time.Hour)
 	repo := checkout.NewPostgresRepository(db)
 	holds := checkout.NewRedisHoldStore(rdb)
 	payments := checkout.NewRazorpay(cfg.RazorpayKeyID, cfg.RazorpayKeySecret, cfg.RazorpayWebhookSecret)
