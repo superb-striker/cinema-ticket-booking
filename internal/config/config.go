@@ -16,6 +16,7 @@ type Config struct {
 	SessionTTL            time.Duration
 	HoldTTL               time.Duration
 	WorkerInterval        time.Duration
+	TrustedProxyCIDRs     string
 	RazorpayKeyID         string
 	RazorpayKeySecret     string
 	RazorpayWebhookSecret string
@@ -31,6 +32,7 @@ func Load() (Config, error) {
 		SessionTTL:            30 * 24 * time.Hour,
 		HoldTTL:               10 * time.Minute,
 		WorkerInterval:        10 * time.Second,
+		TrustedProxyCIDRs:     os.Getenv("TRUSTED_PROXY_CIDRS"),
 		RazorpayKeyID:         os.Getenv("RAZORPAY_KEY_ID"),
 		RazorpayKeySecret:     os.Getenv("RAZORPAY_KEY_SECRET"),
 		RazorpayWebhookSecret: os.Getenv("RAZORPAY_WEBHOOK_SECRET"),

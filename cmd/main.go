@@ -15,6 +15,7 @@ import (
 	"github.com/superb-striker/cinema/internal/checkout"
 	"github.com/superb-striker/cinema/internal/config"
 	"github.com/superb-striker/cinema/internal/database"
+	"github.com/superb-striker/cinema/internal/httpmiddleware"
 	"github.com/superb-striker/cinema/internal/utils"
 )
 
@@ -45,18 +46,23 @@ func main() {
 	checkoutHandler := checkout.NewHandler(checkoutService, repo, payments)
 	worker := checkout.NewWorker(repo, payments, cfg.WorkerInterval)
 	go worker.Run(ctx)
+	limiter, err := httpmiddleware.NewRateLimiter(rdb, "cinema", cfg.TrustedProxyCIDRs)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
-	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.Handle("POST /api/v1/auth/register", limiter.Limit("register", 5, time.Hour, http.HandlerFunc(authHandler.Register)))
+	mux.Handle("POST /api/v1/auth/login", limiter.Limit("login", 10, 5*time.Minute, http.HandlerFunc(authHandler.Login)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authService.Require(http.HandlerFunc(authHandler.Me)))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
-	mux.Handle("POST /api/v1/screenings/{screeningID}/holds", authService.Require(http.HandlerFunc(checkoutHandler.CreateHold)))
-	mux.Handle("POST /api/v1/screenings/{screeningID}/holds/{holdID}/checkout", authService.Require(http.HandlerFunc(checkoutHandler.Checkout)))
+	userKey := func(r *http.Request) string { user, _ := auth.UserFromContext(r.Context()); return user.ID.String() }
+	mux.Handle("POST /api/v1/screenings/{screeningID}/holds", authService.Require(limiter.LimitBy("holds", 30, time.Minute, userKey, http.HandlerFunc(checkoutHandler.CreateHold))))
+	mux.Handle("POST /api/v1/screenings/{screeningID}/holds/{holdID}/checkout", authService.Require(limiter.LimitBy("checkout", 10, time.Minute, userKey, http.HandlerFunc(checkoutHandler.Checkout))))
 	mux.Handle("GET /api/v1/orders/{orderID}", authService.Require(http.HandlerFunc(checkoutHandler.Order)))
-	mux.Handle("POST /api/v1/orders/{orderID}/verify-payment", authService.Require(http.HandlerFunc(checkoutHandler.VerifyPayment)))
+	mux.Handle("POST /api/v1/orders/{orderID}/verify-payment", authService.Require(limiter.LimitBy("verify-payment", 20, time.Minute, userKey, http.HandlerFunc(checkoutHandler.VerifyPayment))))
 	mux.HandleFunc("POST /api/v1/webhooks/razorpay", checkoutHandler.Webhook)
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
