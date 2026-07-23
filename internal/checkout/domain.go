@@ -21,6 +21,9 @@ type Screening struct {
 	ID             uuid.UUID `json:"id"`
 	MovieID        uuid.UUID `json:"movie_id"`
 	MovieTitle     string    `json:"movie_title"`
+	CinemaID       uuid.UUID `json:"cinema_id"`
+	CinemaName     string    `json:"cinema_name"`
+	CinemaCity     string    `json:"cinema_city"`
 	ScreenID       uuid.UUID `json:"screen_id"`
 	ScreenName     string    `json:"screen_name"`
 	StartsAt       time.Time `json:"starts_at"`

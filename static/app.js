@@ -54,7 +54,7 @@
       items.forEach((item) => {
         const button = document.createElement("button");
         button.className = "screening";
-        button.innerHTML = `<strong>${escapeHTML(item.movie_title)}</strong><br><span class="muted">${new Date(item.starts_at).toLocaleString()} · ${escapeHTML(item.screen_name)} · ₹${(item.base_price_paise / 100).toFixed(2)}</span>`;
+        button.innerHTML = `<strong>${escapeHTML(item.movie_title)}</strong><br><span class="muted">${new Date(item.starts_at).toLocaleString()} · ${escapeHTML(item.cinema_name)}, ${escapeHTML(item.cinema_city)} · ${escapeHTML(item.screen_name)} · ₹${(item.base_price_paise / 100).toFixed(2)}</span>`;
         button.onclick = () => selectScreening(item, button);
         root.append(button);
       });
