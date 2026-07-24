@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -86,5 +87,27 @@ func TestRefundReusesExistingReceipt(t *testing.T) {
 	}
 	if id != "rfnd_1" || posts != 0 {
 		t.Fatalf("id=%q posts=%d", id, posts)
+	}
+}
+
+func TestRazorpayErrorPreservesProviderDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":"BAD_REQUEST_ERROR","description":"refund is not available","source":"business","step":"refund_initiation","reason":"insufficient_balance"}}`))
+	}))
+	defer server.Close()
+	r := NewRazorpay("key", "secret", "webhook")
+	r.baseURL = server.URL
+
+	_, _, err := r.CapturedPayment(t.Context(), "order_1")
+	var providerErr *RazorpayAPIError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected RazorpayAPIError, got %T: %v", err, err)
+	}
+	if providerErr.StatusCode != http.StatusBadRequest || providerErr.Code != "BAD_REQUEST_ERROR" ||
+		providerErr.Description != "refund is not available" || providerErr.Source != "business" ||
+		providerErr.Step != "refund_initiation" || providerErr.Reason != "insufficient_balance" {
+		t.Fatalf("unexpected provider error: %+v", providerErr)
 	}
 }

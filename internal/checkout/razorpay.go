@@ -23,6 +23,29 @@ type Razorpay struct {
 	baseURL       string
 }
 
+type RazorpayAPIError struct {
+	StatusCode  int
+	Code        string
+	Description string
+	Source      string
+	Step        string
+	Reason      string
+}
+
+func (e *RazorpayAPIError) Error() string {
+	message := fmt.Sprintf("razorpay returned HTTP %d", e.StatusCode)
+	if e.Code != "" {
+		message += " (" + e.Code + ")"
+	}
+	if e.Description != "" {
+		message += ": " + e.Description
+	}
+	if e.Reason != "" && e.Reason != e.Description {
+		message += " [reason=" + e.Reason + "]"
+	}
+	return message
+}
+
 func NewRazorpay(keyID, keySecret, webhookSecret string) *Razorpay {
 	return &Razorpay{keyID: keyID, keySecret: keySecret, webhookSecret: webhookSecret,
 		client: &http.Client{Timeout: 8 * time.Second}, baseURL: "https://api.razorpay.com/v1"}
@@ -167,8 +190,23 @@ func (r *Razorpay) doJSON(req *http.Request, dst any) error {
 	defer resp.Body.Close()
 	limited := io.LimitReader(resp.Body, 1<<20)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, limited)
-		return fmt.Errorf("razorpay returned HTTP %d", resp.StatusCode)
+		body, readErr := io.ReadAll(limited)
+		if readErr != nil {
+			return fmt.Errorf("read Razorpay error response: %w", readErr)
+		}
+		var response struct {
+			Error struct {
+				Code        string `json:"code"`
+				Description string `json:"description"`
+				Source      string `json:"source"`
+				Step        string `json:"step"`
+				Reason      string `json:"reason"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(body, &response)
+		return &RazorpayAPIError{StatusCode: resp.StatusCode, Code: response.Error.Code,
+			Description: response.Error.Description, Source: response.Error.Source,
+			Step: response.Error.Step, Reason: response.Error.Reason}
 	}
 	if err := json.NewDecoder(limited).Decode(dst); err != nil {
 		return fmt.Errorf("decode razorpay response: %w", err)
