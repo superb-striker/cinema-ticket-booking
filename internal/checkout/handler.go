@@ -124,13 +124,15 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		OrderID   string `json:"razorpay_order_id"`
 		PaymentID string `json:"razorpay_payment_id"`
 		Signature string `json:"razorpay_signature"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if order.ProviderOrderID == "" || !h.razorpay.VerifyPaymentSignature(order.ProviderOrderID, body.PaymentID, body.Signature) {
+	if order.ProviderOrderID == "" || body.OrderID != order.ProviderOrderID ||
+		!h.razorpay.VerifyPaymentSignature(order.ProviderOrderID, body.PaymentID, body.Signature) {
 		utils.WriteError(w, http.StatusBadRequest, "invalid payment signature")
 		return
 	}
