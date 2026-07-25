@@ -20,14 +20,21 @@ func NewPostgresRepository(db *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
-func (p *PostgresRepository) ListScreenings(ctx context.Context) ([]Screening, error) {
+func (p *PostgresRepository) ListScreenings(ctx context.Context, filter ScreeningFilter) ([]Screening, error) {
 	rows, err := p.db.Query(ctx,
-		`SELECT sc.id, sc.movie_id, m.title, c.id, c.name, c.city, sc.screen_id, s.name,
+		`SELECT sc.id, sc.movie_id, m.title, c.id, c.name, c.city, sc.screen_id, s.name, s.format,
 		sc.starts_at, sc.sales_end_at, sc.base_price_paise, sc.currency
 		FROM screenings sc JOIN movies m ON m.id=sc.movie_id JOIN screens s ON s.id=sc.screen_id
 		JOIN cinemas c ON c.id=s.cinema_id
-		WHERE sc.status='scheduled' AND sc.sales_end_at > now() 
-		ORDER BY sc.starts_at`,
+		WHERE sc.status='scheduled' AND sc.sales_end_at > now()
+		  AND ($1::text='' OR m.title ILIKE '%' || $1 || '%')
+		  AND ($2::uuid='00000000-0000-0000-0000-000000000000' OR c.id=$2)
+		  AND ($3::text='' OR lower(c.city)=lower($3))
+		  AND ($4::text='' OR (sc.starts_at >= (($4::date)::timestamp AT TIME ZONE c.timezone)
+		       AND sc.starts_at < ((($4::date + 1)::date)::timestamp AT TIME ZONE c.timezone)))
+		  AND ($5::text='' OR lower(m.language)=lower($5))
+		  AND ($6::text='' OR lower(s.format)=lower($6))
+		ORDER BY sc.starts_at`, filter.Query, filter.CinemaID, filter.City, filter.Date, filter.Language, filter.Format,
 	)
 	if err != nil {
 		return nil, err
@@ -36,7 +43,7 @@ func (p *PostgresRepository) ListScreenings(ctx context.Context) ([]Screening, e
 	var result []Screening
 	for rows.Next() {
 		var v Screening
-		if err := rows.Scan(&v.ID, &v.MovieID, &v.MovieTitle, &v.CinemaID, &v.CinemaName, &v.CinemaCity, &v.ScreenID, &v.ScreenName,
+		if err := rows.Scan(&v.ID, &v.MovieID, &v.MovieTitle, &v.CinemaID, &v.CinemaName, &v.CinemaCity, &v.ScreenID, &v.ScreenName, &v.ScreenFormat,
 			&v.StartsAt, &v.SalesEndAt, &v.BasePricePaise, &v.Currency); err != nil {
 			return nil, err
 		}
@@ -47,7 +54,7 @@ func (p *PostgresRepository) ListScreenings(ctx context.Context) ([]Screening, e
 
 func scanScreening(row pgx.Row) (Screening, error) {
 	var v Screening
-	err := row.Scan(&v.ID, &v.MovieID, &v.MovieTitle, &v.CinemaID, &v.CinemaName, &v.CinemaCity, &v.ScreenID, &v.ScreenName,
+	err := row.Scan(&v.ID, &v.MovieID, &v.MovieTitle, &v.CinemaID, &v.CinemaName, &v.CinemaCity, &v.ScreenID, &v.ScreenName, &v.ScreenFormat,
 		&v.StartsAt, &v.SalesEndAt, &v.BasePricePaise, &v.Currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Screening{}, ErrScreeningClosed
@@ -56,7 +63,7 @@ func scanScreening(row pgx.Row) (Screening, error) {
 }
 
 func (p *PostgresRepository) Screening(ctx context.Context, id uuid.UUID) (Screening, error) {
-	return scanScreening(p.db.QueryRow(ctx, `SELECT sc.id, sc.movie_id, m.title, c.id, c.name, c.city, sc.screen_id, s.name,
+	return scanScreening(p.db.QueryRow(ctx, `SELECT sc.id, sc.movie_id, m.title, c.id, c.name, c.city, sc.screen_id, s.name, s.format,
 		sc.starts_at, sc.sales_end_at, sc.base_price_paise, sc.currency
 		FROM screenings sc JOIN movies m ON m.id=sc.movie_id JOIN screens s ON s.id=sc.screen_id
 		JOIN cinemas c ON c.id=s.cinema_id

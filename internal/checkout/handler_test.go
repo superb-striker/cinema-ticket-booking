@@ -66,3 +66,15 @@ func TestVerifyPaymentRejectsMismatchedRazorpayOrder(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestListScreeningsRejectsInvalidDate(t *testing.T) {
+	handler := NewHandler(nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/screenings?date=18-10-2026", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ListScreenings(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}

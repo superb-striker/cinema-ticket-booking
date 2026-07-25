@@ -1,12 +1,15 @@
 package checkout
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/superb-striker/cinema/internal/auth"
@@ -33,7 +36,24 @@ func parsePathUUID(w http.ResponseWriter, r *http.Request, name string) (uuid.UU
 }
 
 func (h *Handler) ListScreenings(w http.ResponseWriter, r *http.Request) {
-	items, err := h.service.ListScreenings(r.Context())
+	query := r.URL.Query()
+	filter := ScreeningFilter{Query: strings.TrimSpace(query.Get("q")), City: strings.TrimSpace(query.Get("city")),
+		Date: strings.TrimSpace(query.Get("date")), Language: strings.TrimSpace(query.Get("language")), Format: strings.TrimSpace(query.Get("format"))}
+	if value := strings.TrimSpace(query.Get("cinema_id")); value != "" {
+		id, err := uuid.Parse(value)
+		if err != nil {
+			utils.WriteError(w, http.StatusBadRequest, "invalid cinema_id")
+			return
+		}
+		filter.CinemaID = id
+	}
+	if filter.Date != "" {
+		if _, err := time.Parse("2006-01-02", filter.Date); err != nil {
+			utils.WriteError(w, http.StatusBadRequest, "date must use YYYY-MM-DD")
+			return
+		}
+	}
+	items, err := h.service.ListScreenings(r.Context(), filter)
 	if err != nil {
 		serverError(w, err)
 		return

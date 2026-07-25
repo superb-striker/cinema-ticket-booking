@@ -26,10 +26,20 @@ type Screening struct {
 	CinemaCity     string    `json:"cinema_city"`
 	ScreenID       uuid.UUID `json:"screen_id"`
 	ScreenName     string    `json:"screen_name"`
+	ScreenFormat   string    `json:"format"`
 	StartsAt       time.Time `json:"starts_at"`
 	SalesEndAt     time.Time `json:"sales_end_at"`
 	BasePricePaise int64     `json:"base_price_paise"`
 	Currency       string    `json:"currency"`
+}
+
+type ScreeningFilter struct {
+	Query    string
+	CinemaID uuid.UUID
+	City     string
+	Date     string
+	Language string
+	Format   string
 }
 
 type Seat struct {
@@ -50,8 +60,8 @@ type Hold struct {
 }
 
 type Order struct {
-	ID                uuid.UUID `json:"id"`
-	ScreeningID       uuid.UUID `json:"screening_id"`
+	ID                     uuid.UUID `json:"id"`
+	ScreeningID            uuid.UUID `json:"screening_id"`
 	UserID                 uuid.UUID `json:"user_id"`
 	HoldID                 uuid.UUID `json:"hold_id"`
 	SeatIDs                []string  `json:"seat_ids"`
@@ -66,7 +76,7 @@ type Order struct {
 }
 
 type Repository interface {
-	ListScreenings(context.Context) ([]Screening, error)
+	ListScreenings(context.Context, ScreeningFilter) ([]Screening, error)
 	Screening(context.Context, uuid.UUID) (Screening, error)
 	Seats(context.Context, uuid.UUID) ([]Seat, error)
 	ValidateSeats(context.Context, uuid.UUID, []string) (Screening, error)

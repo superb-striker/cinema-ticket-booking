@@ -21,8 +21,8 @@ func NewService(repo Repository, holds HoldStore, payments PaymentProvider, hold
 	return &Service{repo: repo, holds: holds, payments: payments, holdTTL: holdTTL}
 }
 
-func (s *Service) ListScreenings(ctx context.Context) ([]Screening, error) {
-	return s.repo.ListScreenings(ctx)
+func (s *Service) ListScreenings(ctx context.Context, filter ScreeningFilter) ([]Screening, error) {
+	return s.repo.ListScreenings(ctx, filter)
 }
 
 func (s *Service) Seats(ctx context.Context, screeningID uuid.UUID) ([]Seat, error) {
