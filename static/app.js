@@ -1,5 +1,11 @@
 (() => {
-  const state = { user: null, screening: null, seats: [], selected: new Set() };
+  const state = {
+    user: null,
+    screening: null,
+    seats: [],
+    selected: new Set(),
+    seatEvents: null,
+  };
   const $ = (id) => document.getElementById(id);
   async function api(path, options = {}) {
     options.headers = {
@@ -104,6 +110,23 @@
     $("booking").classList.remove("hidden");
     $("screeningTitle").textContent = item.movie_title;
     await loadSeats();
+    subscribeToSeats(item.id);
+  }
+  function subscribeToSeats(screeningID) {
+    if (state.seatEvents) state.seatEvents.close();
+    const source = new EventSource(`/api/v1/screenings/${screeningID}/seat-events`);
+    state.seatEvents = source;
+    source.addEventListener("seats", (event) => {
+      if (state.screening?.id !== screeningID) return;
+      state.seats = JSON.parse(event.data);
+      for (const id of [...state.selected]) {
+        if (state.seats.find((seat) => seat.id === id)?.status !== "available") {
+          state.selected.delete(id);
+        }
+      }
+      renderSeats();
+    });
+    source.onerror = () => message("Seat updates interrupted; reconnecting…", "error");
   }
   async function loadSeats() {
     try {
@@ -224,7 +247,4 @@
     return div.innerHTML;
   }
   Promise.all([loadIdentity(), loadScreenings()]);
-  setInterval(() => {
-    if (state.screening) loadSeats();
-  }, 5000);
 })();

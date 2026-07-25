@@ -59,6 +59,7 @@ func main() {
 	mux.Handle("GET /api/v1/auth/me", authService.Require(http.HandlerFunc(authHandler.Me)))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
+	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seat-events", checkoutHandler.SeatEvents)
 	userKey := func(r *http.Request) string { user, _ := auth.UserFromContext(r.Context()); return user.ID.String() }
 	mux.Handle("POST /api/v1/screenings/{screeningID}/holds", authService.Require(limiter.LimitBy("holds", 30, time.Minute, userKey, http.HandlerFunc(checkoutHandler.CreateHold))))
 	mux.Handle("POST /api/v1/screenings/{screeningID}/holds/{holdID}/checkout", authService.Require(limiter.LimitBy("checkout", 10, time.Minute, userKey, http.HandlerFunc(checkoutHandler.Checkout))))

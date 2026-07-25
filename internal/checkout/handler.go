@@ -64,6 +64,63 @@ func (h *Handler) ListScreenings(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJSON(w, http.StatusOK, items)
 }
 
+func (h *Handler) SeatEvents(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathUUID(w, r, "screeningID")
+	if !ok {
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		utils.WriteError(w, http.StatusInternalServerError, "streaming is unavailable")
+		return
+	}
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	var previous []byte
+	send := func() error {
+		seats, err := h.service.Seats(r.Context(), id)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(seats)
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(payload, previous) {
+			return nil
+		}
+		previous = append(previous[:0], payload...)
+		_, err = fmt.Fprintf(w, "event: seats\ndata: %s\n\n", payload)
+		flusher.Flush()
+		return err
+	}
+	if err := send(); err != nil {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			if err := send(); err != nil {
+				return
+			}
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
 func (h *Handler) Seats(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathUUID(w, r, "screeningID")
 	if !ok {
