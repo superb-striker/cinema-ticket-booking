@@ -46,22 +46,54 @@
       message(error.message, "error");
     }
   });
+  let screeningRequest = 0;
   async function loadScreenings() {
+    const request = ++screeningRequest;
+    const root = $("screenings");
+    root.setAttribute("aria-busy", "true");
     try {
-      const items = await api("/api/v1/screenings");
-      const root = $("screenings");
+      const params = new URLSearchParams();
+      const filters = {
+        q: $("movieFilter").value,
+        city: $("cityFilter").value,
+        date: $("dateFilter").value,
+        language: $("languageFilter").value,
+        format: $("formatFilter").value,
+      };
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value.trim()) params.set(key, value.trim());
+      });
+      const items = await api(`/api/v1/screenings?${params}`);
+      if (request !== screeningRequest) return;
       root.innerHTML = "";
+      if (!items.length) {
+        root.innerHTML = '<p class="muted">No screenings match these filters.</p>';
+      }
       items.forEach((item) => {
         const button = document.createElement("button");
         button.className = "screening";
-        button.innerHTML = `<strong>${escapeHTML(item.movie_title)}</strong><br><span class="muted">${new Date(item.starts_at).toLocaleString()} · ${escapeHTML(item.cinema_name)}, ${escapeHTML(item.cinema_city)} · ${escapeHTML(item.screen_name)} · ₹${(item.base_price_paise / 100).toFixed(2)}</span>`;
+        button.innerHTML = `<strong>${escapeHTML(item.movie_title)}</strong><br><span class="muted">${new Date(item.starts_at).toLocaleString()} · ${escapeHTML(item.cinema_name)}, ${escapeHTML(item.cinema_city)} · ${escapeHTML(item.screen_name)} · ${escapeHTML(item.format)} · ₹${(item.base_price_paise / 100).toFixed(2)}</span>`;
         button.onclick = () => selectScreening(item, button);
         root.append(button);
       });
     } catch (error) {
+      if (request !== screeningRequest) return;
       message(error.message, "error");
+    } finally {
+      root.setAttribute("aria-busy", "false");
     }
   }
+  let filterTimer;
+  $("filters").addEventListener("input", () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(loadScreenings, 250);
+  });
+  $("filters").addEventListener("reset", () => setTimeout(loadScreenings));
+  $("filters").addEventListener("submit", (event) => {
+    event.preventDefault();
+    clearTimeout(filterTimer);
+    loadScreenings();
+  });
   async function selectScreening(item, button) {
     state.screening = item;
     state.selected.clear();
@@ -89,6 +121,9 @@
       button.textContent = seat.id;
       button.className = `seat ${seat.status}`;
       button.disabled = seat.status !== "available";
+      button.type = "button";
+      button.setAttribute("aria-label", `Seat ${seat.id}: ${seat.status.replaceAll("_", " ")}`);
+      button.setAttribute("aria-pressed", state.selected.has(seat.id) ? "true" : "false");
       if (state.selected.has(seat.id)) button.classList.add("selected");
       button.onclick = () => {
         state.selected.has(seat.id)

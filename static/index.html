@@ -55,6 +55,7 @@
         align-items: center;
       }
       input,
+      select,
       button {
         border-radius: 7px;
         border: 1px solid var(--line);
@@ -65,6 +66,10 @@
         background: #101318;
         color: var(--text);
         min-width: 220px;
+      }
+      select {
+        background: #101318;
+        color: var(--text);
       }
       button {
         background: #252a33;
@@ -110,6 +115,29 @@
       .seat.selected {
         background: var(--brand);
         color: #06141b;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid var(--brand);
+        outline-offset: 2px;
+      }
+      .filters {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .filters label {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .filters input,
+      .filters select {
+        width: 100%;
+        min-width: 0;
       }
       .seat.held,
       .seat.payment_pending {
@@ -159,6 +187,10 @@
           align-items: flex-start;
           flex-direction: column;
         }
+        main {
+          width: min(100% - 20px, 1000px);
+          margin-top: 18px;
+        }
       }
     </style>
   </head>
@@ -195,12 +227,23 @@
       </section>
       <section class="panel">
         <h2>Upcoming screenings</h2>
-        <div id="screenings"></div>
+        <form id="filters" class="filters" role="search">
+          <label>Movie<input id="movieFilter" type="search" placeholder="Search title" /></label>
+          <label>City<input id="cityFilter" type="search" placeholder="Bengaluru" /></label>
+          <label>Date<input id="dateFilter" type="date" /></label>
+          <label>Language<input id="languageFilter" type="search" placeholder="English" /></label>
+          <label>Format<select id="formatFilter"><option value="">All formats</option><option value="2D">2D</option><option value="3D">3D</option><option value="IMAX">IMAX</option></select></label>
+          <div class="row">
+            <button class="primary" type="submit">Apply filters</button>
+            <button type="reset">Clear</button>
+          </div>
+        </form>
+        <div id="screenings" aria-live="polite" aria-busy="false"></div>
       </section>
       <section id="booking" class="panel hidden">
         <h2 id="screeningTitle">Choose seats</h2>
         <div class="screen"></div>
-        <div id="seats"></div>
+        <div id="seats" role="group" aria-label="Choose seats"></div>
         <div class="summary">
           <div>
             <strong id="selection">No seats selected</strong>
@@ -214,6 +257,6 @@
       <div id="message" role="status" aria-live="polite"></div>
     </main>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="/app.js" defer></script>
+    <script src="/app.js?v=priority1-catalog-1" defer></script>
   </body>
 </html>
