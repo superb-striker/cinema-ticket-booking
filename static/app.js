@@ -30,10 +30,19 @@
       state.user = await api("/api/v1/auth/me");
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
+      $("logout").classList.remove("hidden");
     } catch {
       state.user = null;
     }
   }
+  $("logout").onclick = async () => {
+    await api("/api/v1/auth/logout", { method: "POST" });
+    state.user = null;
+    $("identity").textContent = "Not signed in";
+    $("logout").classList.add("hidden");
+    $("auth").classList.remove("hidden");
+    message("Signed out", "success");
+  };
   $("authForm").addEventListener("click", async (event) => {
     if (event.target.tagName !== "BUTTON") return;
     event.preventDefault();
@@ -47,6 +56,7 @@
       });
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
+      $("logout").classList.remove("hidden");
       message("Signed in", "success");
     } catch (error) {
       message(error.message, "error");
