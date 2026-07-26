@@ -128,7 +128,7 @@ func (r *Razorpay) Refund(ctx context.Context, action RefundAction) (string, err
 		return id, nil
 	}
 	body, err := json.Marshal(map[string]any{"amount": action.AmountPaise,
-		"notes": map[string]string{"refund_action_id": action.ID.String(), "internal_order_id": action.OrderID.String(), "reason": "late_payment_after_seat_release"}})
+		"notes": map[string]string{"refund_action_id": action.ID.String(), "internal_order_id": action.OrderID.String(), "reason": action.Reason}})
 	if err != nil {
 		return "", err
 	}

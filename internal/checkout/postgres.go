@@ -135,10 +135,12 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 
 	var existing Order
 	err = tx.QueryRow(ctx, `SELECT id, screening_id, user_id, hold_id, status, amount_paise, currency,
+		subtotal_paise, convenience_fee_paise, tax_paise,
 		provider, COALESCE(provider_order_id,''), COALESCE(provider_payment_id,''), expires_at
 		FROM orders WHERE user_id=$1 AND idempotency_key=$2`, hold.UserID, idempotencyKey).
 		Scan(&existing.ID, &existing.ScreeningID, &existing.UserID, &existing.HoldID, &existing.Status,
-			&existing.AmountPaise, &existing.Currency, &existing.Provider, &existing.ProviderOrderID,
+			&existing.AmountPaise, &existing.Currency, &existing.SubtotalPaise, &existing.ConvenienceFeePaise,
+			&existing.TaxPaise, &existing.Provider, &existing.ProviderOrderID,
 			&existing.ProviderPaymentID, &existing.ExpiresAt)
 	if err == nil {
 		if existing.HoldID != hold.ID {
@@ -162,15 +164,21 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 		return Order{}, false, err
 	}
 
+	subtotal := price * int64(len(hold.SeatIDs))
+	convenienceFee := (subtotal*300 + 9999) / 10000
+	tax := (convenienceFee*1800 + 9999) / 10000
 	order := Order{
 		ID: uuid.New(), UserID: hold.UserID, ScreeningID: hold.ScreeningID, HoldID: hold.ID,
-		SeatIDs: hold.SeatIDs, Status: "payment_pending", AmountPaise: price * int64(len(hold.SeatIDs)),
+		SeatIDs: hold.SeatIDs, Status: "payment_pending", SubtotalPaise: subtotal,
+		ConvenienceFeePaise: convenienceFee, TaxPaise: tax, AmountPaise: subtotal + convenienceFee + tax,
 		Currency: currency, Provider: "razorpay", ExpiresAt: hold.ExpiresAt,
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO orders
-		(id,user_id,screening_id,hold_id,idempotency_key,status,amount_paise,currency,provider,expires_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, order.ID, order.UserID, order.ScreeningID,
-		order.HoldID, idempotencyKey, order.Status, order.AmountPaise, order.Currency, order.Provider, order.ExpiresAt)
+		(id,user_id,screening_id,hold_id,idempotency_key,status,amount_paise,currency,provider,expires_at,
+		 subtotal_paise,convenience_fee_paise,tax_paise)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, order.ID, order.UserID, order.ScreeningID,
+		order.HoldID, idempotencyKey, order.Status, order.AmountPaise, order.Currency, order.Provider, order.ExpiresAt,
+		order.SubtotalPaise, order.ConvenienceFeePaise, order.TaxPaise)
 	if err != nil {
 		return Order{}, false, mapInventoryError(err)
 	}
@@ -237,10 +245,12 @@ func (p *PostgresRepository) FailOrder(ctx context.Context, orderID uuid.UUID) e
 
 func (p *PostgresRepository) Order(ctx context.Context, orderID, userID uuid.UUID) (Order, error) {
 	var order Order
-	err := p.db.QueryRow(ctx, `SELECT id,screening_id,user_id,hold_id,status,amount_paise,currency,provider,
+	err := p.db.QueryRow(ctx, `SELECT id,screening_id,user_id,hold_id,status,amount_paise,currency,
+		subtotal_paise,convenience_fee_paise,tax_paise,provider,
 		COALESCE(provider_order_id,''),COALESCE(provider_payment_id,''),expires_at
 		FROM orders WHERE id=$1 AND user_id=$2`, orderID, userID).Scan(&order.ID, &order.ScreeningID, &order.UserID,
-		&order.HoldID, &order.Status, &order.AmountPaise, &order.Currency, &order.Provider, &order.ProviderOrderID,
+		&order.HoldID, &order.Status, &order.AmountPaise, &order.Currency, &order.SubtotalPaise,
+		&order.ConvenienceFeePaise, &order.TaxPaise, &order.Provider, &order.ProviderOrderID,
 		&order.ProviderPaymentID, &order.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, ErrForbidden
@@ -261,6 +271,147 @@ func (p *PostgresRepository) Order(ctx context.Context, orderID, userID uuid.UUI
 		order.SeatIDs = append(order.SeatIDs, id)
 	}
 	return order, rows.Err()
+}
+
+func (p *PostgresRepository) Bookings(ctx context.Context, userID uuid.UUID, limit int) ([]Booking, error) {
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	rows, err := p.db.Query(ctx, bookingQuery+` WHERE o.user_id=$1 ORDER BY o.created_at DESC LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []Booking
+	for rows.Next() {
+		booking, err := scanBooking(rows)
+		if err != nil {
+			return nil, err
+		}
+		booking.SeatIDs, err = p.bookingSeats(ctx, booking.ID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, booking)
+	}
+	return result, rows.Err()
+}
+
+func (p *PostgresRepository) Booking(ctx context.Context, orderID, userID uuid.UUID) (Booking, error) {
+	booking, err := scanBooking(p.db.QueryRow(ctx, bookingQuery+` WHERE o.id=$1 AND o.user_id=$2`, orderID, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Booking{}, ErrForbidden
+	}
+	if err != nil {
+		return Booking{}, err
+	}
+	booking.SeatIDs, err = p.bookingSeats(ctx, orderID)
+	return booking, err
+}
+
+const bookingQuery = `SELECT o.id,o.screening_id,o.user_id,o.hold_id,o.status,o.amount_paise,o.currency,
+	o.subtotal_paise,o.convenience_fee_paise,o.tax_paise,o.provider,
+	COALESCE(o.provider_order_id,''),COALESCE(o.provider_payment_id,''),o.expires_at,
+	m.title,c.name,c.city,c.timezone,s.name,s.format,sc.starts_at,o.created_at,
+	(o.status='confirmed' AND sc.starts_at > now()+interval '2 hours') AS can_cancel
+	FROM orders o JOIN screenings sc ON sc.id=o.screening_id
+	JOIN movies m ON m.id=sc.movie_id JOIN screens s ON s.id=sc.screen_id JOIN cinemas c ON c.id=s.cinema_id`
+
+type rowScanner interface{ Scan(...any) error }
+
+func scanBooking(row rowScanner) (Booking, error) {
+	var b Booking
+	err := row.Scan(&b.ID, &b.ScreeningID, &b.UserID, &b.HoldID, &b.Status, &b.AmountPaise, &b.Currency,
+		&b.SubtotalPaise, &b.ConvenienceFeePaise, &b.TaxPaise, &b.Provider, &b.ProviderOrderID,
+		&b.ProviderPaymentID, &b.ExpiresAt, &b.MovieTitle, &b.CinemaName, &b.CinemaCity, &b.CinemaTimezone, &b.ScreenName,
+		&b.ScreenFormat, &b.StartsAt, &b.CreatedAt, &b.CanCancel)
+	return b, err
+}
+
+func (p *PostgresRepository) bookingSeats(ctx context.Context, orderID uuid.UUID) ([]string, error) {
+	rows, err := p.db.Query(ctx, `SELECT seat_id FROM order_seats WHERE order_id=$1 ORDER BY seat_id`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var seats []string
+	for rows.Next() {
+		var seat string
+		if err := rows.Scan(&seat); err != nil {
+			return nil, err
+		}
+		seats = append(seats, seat)
+	}
+	return seats, rows.Err()
+}
+
+func (p *PostgresRepository) CancelOrder(ctx context.Context, orderID, userID uuid.UUID, cutoff time.Duration, reason string) (Booking, error) {
+	tx, err := p.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return Booking{}, err
+	}
+	defer tx.Rollback(ctx)
+	var status string
+	var startsAt time.Time
+	err = tx.QueryRow(ctx, `SELECT o.status,sc.starts_at FROM orders o JOIN screenings sc ON sc.id=o.screening_id
+		WHERE o.id=$1 AND o.user_id=$2 FOR UPDATE OF o`, orderID, userID).Scan(&status, &startsAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Booking{}, ErrForbidden
+	}
+	if err != nil {
+		return Booking{}, err
+	}
+	if status != "confirmed" || !startsAt.After(time.Now().Add(cutoff)) {
+		return Booking{}, ErrNotCancellable
+	}
+	if _, err = tx.Exec(ctx, `UPDATE orders SET status='refund_pending',cancellation_requested_at=now(),
+		cancellation_reason=$2,updated_at=now() WHERE id=$1`, orderID, reason); err != nil {
+		return Booking{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE order_seats SET status='released' WHERE order_id=$1 AND status='confirmed'`, orderID); err != nil {
+		return Booking{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO payment_actions(order_id,action) VALUES($1,'refund') ON CONFLICT DO NOTHING`, orderID); err != nil {
+		return Booking{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Booking{}, err
+	}
+	return p.Booking(ctx, orderID, userID)
+}
+
+func (p *PostgresRepository) AdmitTicket(ctx context.Context, orderID uuid.UUID) (time.Time, error) {
+	tx, err := p.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer tx.Rollback(ctx)
+	var valid bool
+	err = tx.QueryRow(ctx, `SELECT o.status='confirmed' AND now() >= sc.starts_at-interval '2 hours'
+		AND now() <= sc.starts_at+(m.duration_minutes || ' minutes')::interval
+		FROM orders o JOIN screenings sc ON sc.id=o.screening_id JOIN movies m ON m.id=sc.movie_id
+		WHERE o.id=$1 FOR UPDATE OF o`, orderID).Scan(&valid)
+	if errors.Is(err, pgx.ErrNoRows) || !valid {
+		return time.Time{}, ErrTicketInvalid
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	var admittedAt time.Time
+	err = tx.QueryRow(ctx, `INSERT INTO ticket_scans(order_id,result) VALUES($1,'admitted')
+		ON CONFLICT (order_id) WHERE result='admitted' DO NOTHING RETURNING scanned_at`, orderID).Scan(&admittedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_ = tx.QueryRow(ctx, `SELECT scanned_at FROM ticket_scans WHERE order_id=$1 AND result='admitted'`, orderID).Scan(&admittedAt)
+		_, _ = tx.Exec(ctx, `INSERT INTO ticket_scans(order_id,result) VALUES($1,'duplicate')`, orderID)
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			return time.Time{}, commitErr
+		}
+		return admittedAt, ErrTicketUsed
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return admittedAt, tx.Commit(ctx)
 }
 
 func (p *PostgresRepository) expireOrders(ctx context.Context) error {
@@ -291,9 +442,10 @@ func (p *PostgresRepository) ClaimRefund(ctx context.Context, lease time.Duratio
 		FROM candidate c WHERE pa.id=c.id
 		RETURNING pa.id,pa.order_id,pa.attempts
 	)
-	SELECT c.id,c.order_id,o.provider_payment_id,o.amount_paise,c.attempts
+	SELECT c.id,c.order_id,o.provider_payment_id,o.amount_paise,c.attempts,
+		COALESCE(o.cancellation_reason,'late payment after seat release')
 	FROM claimed c JOIN orders o ON o.id=c.order_id`, durationInterval(lease)).Scan(
-		&action.ID, &action.OrderID, &action.ProviderPaymentID, &action.AmountPaise, &action.Attempts)
+		&action.ID, &action.OrderID, &action.ProviderPaymentID, &action.AmountPaise, &action.Attempts, &action.Reason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RefundAction{}, false, nil
 	}
@@ -316,6 +468,24 @@ func (p *PostgresRepository) CompleteRefund(ctx context.Context, action RefundAc
 	}
 	if _, err = tx.Exec(ctx, `UPDATE orders SET status='refunded',updated_at=now() WHERE id=$1 AND status='refund_pending'`, action.OrderID); err != nil {
 		return err
+	}
+	var userID uuid.UUID
+	var email string
+	var phone *string
+	if err = tx.QueryRow(ctx, `SELECT u.id,u.email,u.phone FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, action.OrderID).
+		Scan(&userID, &email, &phone); err != nil {
+		return err
+	}
+	payload := fmt.Sprintf(`{"order_id":%q,"amount_paise":%q}`, action.OrderID.String(), fmt.Sprint(action.AmountPaise))
+	if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
+		VALUES($1,$2,'email',$3,'refund_completed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, action.OrderID, email, payload); err != nil {
+		return err
+	}
+	if phone != nil && *phone != "" {
+		if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
+			VALUES($1,$2,'sms',$3,'refund_completed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, action.OrderID, *phone, payload); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -418,6 +588,24 @@ func (p *PostgresRepository) ConfirmPayment(ctx context.Context, event PaymentEv
 	_, err = tx.Exec(ctx, `UPDATE order_seats SET status='confirmed' WHERE order_id=$1 AND status='payment_pending'`, orderID)
 	if err != nil {
 		return false, err
+	}
+	var userID uuid.UUID
+	var email string
+	var phone *string
+	if err = tx.QueryRow(ctx, `SELECT u.id,u.email,u.phone FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, orderID).
+		Scan(&userID, &email, &phone); err != nil {
+		return false, err
+	}
+	payload := fmt.Sprintf(`{"order_id":%q}`, orderID.String())
+	if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
+		VALUES($1,$2,'email',$3,'booking_confirmed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, orderID, email, payload); err != nil {
+		return false, err
+	}
+	if phone != nil && *phone != "" {
+		if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
+			VALUES($1,$2,'sms',$3,'booking_confirmed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, orderID, *phone, payload); err != nil {
+			return false, err
+		}
 	}
 	return true, tx.Commit(ctx)
 }

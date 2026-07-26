@@ -2,6 +2,7 @@ package checkout
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -53,6 +54,7 @@ func TestPostgresLatePaymentQueuesAndCompletesRefund(t *testing.T) {
 			}
 		}
 		if orderID != uuid.Nil {
+			cleanup(`DELETE FROM notification_jobs WHERE order_id=$1`, orderID)
 			cleanup(`DELETE FROM payment_events WHERE provider_order_id=$1`, "order_integration_"+orderID.String())
 			cleanup(`DELETE FROM payment_actions WHERE order_id=$1`, orderID)
 			cleanup(`DELETE FROM order_seats WHERE order_id=$1`, orderID)
@@ -104,5 +106,120 @@ func TestPostgresLatePaymentQueuesAndCompletesRefund(t *testing.T) {
 	}
 	if status != "refunded" {
 		t.Fatalf("want refunded, got %q", status)
+	}
+}
+
+func TestPostgresCancellationReleasesSeatAndQueuesRefund(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+	repo := NewPostgresRepository(db)
+	userID, orderID := uuid.New(), uuid.New()
+	var screeningID uuid.UUID
+	var seatID string
+	var price int64
+	if err := db.QueryRow(ctx, `SELECT sc.id,st.id,sc.base_price_paise FROM screenings sc
+		JOIN seats st ON st.screen_id=sc.screen_id
+		WHERE sc.starts_at>now()+interval '3 hours' AND sc.status='scheduled'
+		AND NOT EXISTS (SELECT 1 FROM order_seats os WHERE os.screening_id=sc.id AND os.seat_id=st.id
+			AND os.status IN ('payment_pending','confirmed')) LIMIT 1`).Scan(&screeningID, &seatID, &price); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO users(id,email,password_hash) VALUES($1,$2,'integration-test')`,
+		userID, userID.String()+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	providerPaymentID := "pay_cancel_" + orderID.String()
+	if _, err = db.Exec(ctx, `INSERT INTO orders(id,user_id,screening_id,hold_id,idempotency_key,status,
+		amount_paise,subtotal_paise,convenience_fee_paise,tax_paise,currency,provider,provider_payment_id,expires_at)
+		VALUES($1,$2,$3,$4,$5,'confirmed',$6,$6,0,0,'INR','razorpay',$7,now()+interval '10 minutes')`,
+		orderID, userID, screeningID, uuid.New(), uuid.NewString(), price, providerPaymentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO order_seats(order_id,screening_id,seat_id,status,price_paise)
+		VALUES($1,$2,$3,'confirmed',$4)`, orderID, screeningID, seatID, price); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(context.Background(), `DELETE FROM payment_actions WHERE order_id=$1`, orderID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM order_seats WHERE order_id=$1`, orderID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM orders WHERE id=$1`, orderID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID)
+	})
+	booking, err := repo.CancelOrder(ctx, orderID, userID, 2*time.Hour, "plans changed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if booking.Status != "refund_pending" || booking.CanCancel {
+		t.Fatalf("unexpected cancelled booking: %+v", booking)
+	}
+	var seatStatus, actionStatus string
+	if err := db.QueryRow(ctx, `SELECT os.status,pa.status FROM order_seats os
+		JOIN payment_actions pa ON pa.order_id=os.order_id WHERE os.order_id=$1`, orderID).Scan(&seatStatus, &actionStatus); err != nil {
+		t.Fatal(err)
+	}
+	if seatStatus != "released" || actionStatus != "pending" {
+		t.Fatalf("seat=%s action=%s", seatStatus, actionStatus)
+	}
+}
+
+func TestPostgresTicketAdmissionIsSingleUse(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+	repo := NewPostgresRepository(db)
+	userID, screeningID, orderID := uuid.New(), uuid.New(), uuid.New()
+	var movieID, screenID uuid.UUID
+	var seatID string
+	if err := db.QueryRow(ctx, `SELECT sc.movie_id,sc.screen_id,st.id FROM screenings sc
+		JOIN seats st ON st.screen_id=sc.screen_id LIMIT 1`).Scan(&movieID, &screenID, &seatID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO users(id,email,password_hash) VALUES($1,$2,'integration-test')`,
+		userID, userID.String()+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO screenings(id,movie_id,screen_id,starts_at,sales_end_at,base_price_paise,currency)
+		VALUES($1,$2,$3,now()+interval '30 minutes',now()+interval '20 minutes',10000,'INR')`, screeningID, movieID, screenID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO orders(id,user_id,screening_id,hold_id,idempotency_key,status,
+		amount_paise,subtotal_paise,convenience_fee_paise,tax_paise,currency,provider,provider_payment_id,expires_at)
+		VALUES($1,$2,$3,$4,$5,'confirmed',10000,10000,0,0,'INR','razorpay',$6,now()+interval '10 minutes')`,
+		orderID, userID, screeningID, uuid.New(), uuid.NewString(), "pay_admit_"+orderID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO order_seats(order_id,screening_id,seat_id,status,price_paise)
+		VALUES($1,$2,$3,'confirmed',10000)`, orderID, screeningID, seatID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(context.Background(), `DELETE FROM ticket_scans WHERE order_id=$1`, orderID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM order_seats WHERE order_id=$1`, orderID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM orders WHERE id=$1`, orderID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM screenings WHERE id=$1`, screeningID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID)
+	})
+	first, err := repo.AdmitTicket(ctx, orderID)
+	if err != nil || first.IsZero() {
+		t.Fatalf("first admission: time=%s err=%v", first, err)
+	}
+	duplicateTime, err := repo.AdmitTicket(ctx, orderID)
+	if !errors.Is(err, ErrTicketUsed) || !duplicateTime.Equal(first) {
+		t.Fatalf("duplicate admission: first=%s duplicate=%s err=%v", first, duplicateTime, err)
 	}
 }

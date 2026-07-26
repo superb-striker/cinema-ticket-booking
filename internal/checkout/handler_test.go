@@ -28,7 +28,7 @@ func TestVerifyPaymentAcceptsRazorpayCallback(t *testing.T) {
 	)
 	orderID := uuid.New()
 	repo := paymentCallbackRepository{order: Order{ID: orderID, ProviderOrderID: providerOrderID}}
-	handler := NewHandler(nil, repo, NewRazorpay("key", secret, "webhook-secret"))
+	handler := NewHandler(nil, repo, NewRazorpay("key", secret, "webhook-secret"), "ticket-secret", "scanner-key")
 	signature := sign(secret, []byte(providerOrderID+"|"+paymentID))
 	body := fmt.Sprintf(`{"razorpay_payment_id":%q,"razorpay_order_id":%q,"razorpay_signature":%q}`,
 		paymentID, providerOrderID, signature)
@@ -52,7 +52,7 @@ func TestVerifyPaymentRejectsMismatchedRazorpayOrder(t *testing.T) {
 	)
 	orderID := uuid.New()
 	repo := paymentCallbackRepository{order: Order{ID: orderID, ProviderOrderID: providerOrderID}}
-	handler := NewHandler(nil, repo, NewRazorpay("key", secret, "webhook-secret"))
+	handler := NewHandler(nil, repo, NewRazorpay("key", secret, "webhook-secret"), "ticket-secret", "scanner-key")
 	signature := sign(secret, []byte(callbackOrderID+"|"+paymentID))
 	body := fmt.Sprintf(`{"razorpay_payment_id":%q,"razorpay_order_id":%q,"razorpay_signature":%q}`,
 		paymentID, callbackOrderID, signature)
@@ -68,7 +68,7 @@ func TestVerifyPaymentRejectsMismatchedRazorpayOrder(t *testing.T) {
 }
 
 func TestListScreeningsRejectsInvalidDate(t *testing.T) {
-	handler := NewHandler(nil, nil, nil)
+	handler := NewHandler(nil, nil, nil, "ticket-secret", "scanner-key")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/screenings?date=18-10-2026", nil)
 	recorder := httptest.NewRecorder()
 
@@ -76,5 +76,19 @@ func TestListScreeningsRejectsInvalidDate(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTicketCodeRejectsTampering(t *testing.T) {
+	handler := NewHandler(nil, nil, nil, "a-test-ticket-secret-that-is-long-enough", "scanner-key")
+	orderID := uuid.New()
+	code := handler.ticketCode(orderID)
+	parsed, ok := handler.parseTicketCode(code)
+	if !ok || parsed != orderID {
+		t.Fatalf("valid ticket was rejected: id=%s ok=%v", parsed, ok)
+	}
+	tampered := uuid.New().String() + code[len(orderID.String()):]
+	if _, ok := handler.parseTicketCode(tampered); ok {
+		t.Fatal("tampered ticket was accepted")
 	}
 }

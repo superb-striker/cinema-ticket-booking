@@ -15,6 +15,9 @@ var (
 	ErrHoldNotFound     = errors.New("hold not found or expired")
 	ErrForbidden        = errors.New("hold belongs to another user")
 	ErrIdempotencyReuse = errors.New("idempotency key was reused with different parameters")
+	ErrNotCancellable   = errors.New("booking is no longer eligible for cancellation")
+	ErrTicketInvalid    = errors.New("ticket is invalid")
+	ErrTicketUsed       = errors.New("ticket has already been admitted")
 )
 
 type Screening struct {
@@ -67,12 +70,28 @@ type Order struct {
 	SeatIDs                []string  `json:"seat_ids"`
 	Status                 string    `json:"status"`
 	AmountPaise            int64     `json:"amount_paise"`
+	SubtotalPaise          int64     `json:"subtotal_paise"`
+	ConvenienceFeePaise    int64     `json:"convenience_fee_paise"`
+	TaxPaise               int64     `json:"tax_paise"`
 	Currency               string    `json:"currency"`
 	Provider               string    `json:"provider"`
 	ProviderOrderID        string    `json:"provider_order_id,omitempty"`
 	ProviderPaymentID      string    `json:"provider_payment_id,omitempty"`
 	ExpiresAt              time.Time `json:"expires_at"`
 	ReconciliationAttempts int       `json:"-"`
+}
+
+type Booking struct {
+	Order
+	MovieTitle     string    `json:"movie_title"`
+	CinemaName     string    `json:"cinema_name"`
+	CinemaCity     string    `json:"cinema_city"`
+	CinemaTimezone string    `json:"cinema_timezone"`
+	ScreenName     string    `json:"screen_name"`
+	ScreenFormat   string    `json:"format"`
+	StartsAt       time.Time `json:"starts_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	CanCancel      bool      `json:"can_cancel"`
 }
 
 type Repository interface {
@@ -84,6 +103,10 @@ type Repository interface {
 	SetProviderOrder(context.Context, uuid.UUID, string) error
 	FailOrder(context.Context, uuid.UUID) error
 	Order(context.Context, uuid.UUID, uuid.UUID) (Order, error)
+	Bookings(context.Context, uuid.UUID, int) ([]Booking, error)
+	Booking(context.Context, uuid.UUID, uuid.UUID) (Booking, error)
+	CancelOrder(context.Context, uuid.UUID, uuid.UUID, time.Duration, string) (Booking, error)
+	AdmitTicket(context.Context, uuid.UUID) (time.Time, error)
 	ConfirmPayment(context.Context, PaymentEvent) (bool, error)
 	ExpireOrders(context.Context) (int64, error)
 	ClaimRefund(context.Context, time.Duration) (RefundAction, bool, error)
@@ -119,6 +142,7 @@ type RefundAction struct {
 	ProviderPaymentID string
 	AmountPaise       int64
 	Attempts          int
+	Reason            string
 }
 
 type PaymentEvent struct {

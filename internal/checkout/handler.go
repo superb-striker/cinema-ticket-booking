@@ -2,6 +2,9 @@ package checkout
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,21 +12,157 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"text/template"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/google/uuid"
+	qrcode "github.com/skip2/go-qrcode"
 	"github.com/superb-striker/cinema/internal/auth"
 	"github.com/superb-striker/cinema/internal/utils"
 )
 
 type Handler struct {
-	service  *Service
-	repo     Repository
-	razorpay *Razorpay
+	service      *Service
+	repo         Repository
+	razorpay     *Razorpay
+	ticketSecret []byte
+	scannerKey   string
 }
 
-func NewHandler(service *Service, repo Repository, razorpay *Razorpay) *Handler {
-	return &Handler{service: service, repo: repo, razorpay: razorpay}
+func NewHandler(service *Service, repo Repository, razorpay *Razorpay, ticketSecret, scannerKey string) *Handler {
+	return &Handler{service: service, repo: repo, razorpay: razorpay, ticketSecret: []byte(ticketSecret), scannerKey: scannerKey}
+}
+
+func (h *Handler) Bookings(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	items, err := h.repo.Bookings(r.Context(), user.ID, 50)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if items == nil {
+		items = []Booking{}
+	}
+	utils.WriteJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) CancelBooking(w http.ResponseWriter, r *http.Request) {
+	orderID, ok := parsePathUUID(w, r, "orderID")
+	if !ok {
+		return
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	body.Reason = strings.TrimSpace(body.Reason)
+	if body.Reason == "" || len(body.Reason) > 200 {
+		utils.WriteError(w, http.StatusBadRequest, "a cancellation reason is required")
+		return
+	}
+	user, _ := auth.UserFromContext(r.Context())
+	booking, err := h.repo.CancelOrder(r.Context(), orderID, user.ID, 2*time.Hour, body.Reason)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	utils.WriteJSON(w, http.StatusAccepted, booking)
+}
+
+func (h *Handler) DownloadTicket(w http.ResponseWriter, r *http.Request) {
+	orderID, ok := parsePathUUID(w, r, "orderID")
+	if !ok {
+		return
+	}
+	user, _ := auth.UserFromContext(r.Context())
+	booking, err := h.repo.Booking(r.Context(), orderID, user.ID)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	if booking.Status != "confirmed" {
+		utils.WriteError(w, http.StatusConflict, "a ticket is available only for confirmed bookings")
+		return
+	}
+	code := h.ticketCode(orderID)
+	png, err := qrcode.Encode(code, qrcode.Medium, 256)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	data := struct {
+		Booking  Booking
+		QR       string
+		StartsAt string
+	}{Booking: booking, QR: base64.StdEncoding.EncodeToString(png), StartsAt: formatCinemaTime(booking.StartsAt, booking.CinemaTimezone)}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="ticket-%s.html"`, orderID))
+	if err := ticketTemplate.Execute(w, data); err != nil {
+		log.Printf("render ticket: %v", err)
+	}
+}
+
+func (h *Handler) ValidateTicket(w http.ResponseWriter, r *http.Request) {
+	if h.scannerKey == "" || !hmac.Equal([]byte(r.Header.Get("X-Scanner-Key")), []byte(h.scannerKey)) {
+		utils.WriteError(w, http.StatusUnauthorized, "scanner authentication required")
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	orderID, ok := h.parseTicketCode(body.Code)
+	if !ok {
+		utils.WriteError(w, http.StatusBadRequest, ErrTicketInvalid.Error())
+		return
+	}
+	admittedAt, err := h.repo.AdmitTicket(r.Context(), orderID)
+	if err != nil {
+		if errors.Is(err, ErrTicketUsed) {
+			utils.WriteJSON(w, http.StatusConflict, map[string]any{"valid": false, "error": err.Error(), "first_admitted_at": admittedAt})
+			return
+		}
+		writeDomainError(w, err)
+		return
+	}
+	utils.WriteJSON(w, http.StatusOK, map[string]any{"valid": true, "order_id": orderID, "admitted_at": admittedAt})
+}
+
+func (h *Handler) ticketCode(orderID uuid.UUID) string {
+	payload := orderID.String()
+	mac := hmac.New(sha256.New, h.ticketSecret)
+	_, _ = mac.Write([]byte(payload))
+	return payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (h *Handler) parseTicketCode(code string) (uuid.UUID, bool) {
+	parts := strings.Split(code, ".")
+	if len(parts) != 2 {
+		return uuid.Nil, false
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return uuid.Nil, false
+	}
+	mac := hmac.New(sha256.New, h.ticketSecret)
+	_, _ = mac.Write([]byte(parts[0]))
+	id, err := uuid.Parse(parts[0])
+	return id, err == nil && hmac.Equal(signature, mac.Sum(nil))
+}
+
+var ticketTemplate = template.Must(template.New("ticket").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>Ticket {{.Booking.ID}}</title><style>body{font:16px system-ui;max-width:680px;margin:40px auto;padding:24px;color:#111}.ticket{border:2px solid #111;border-radius:16px;padding:28px}img{width:256px;max-width:100%}.muted{color:#555}@media print{body{margin:0}.ticket{border:0}}</style></head><body><main class="ticket"><h1>{{.Booking.MovieTitle}}</h1><p>{{.Booking.CinemaName}}, {{.Booking.CinemaCity}} · {{.Booking.ScreenName}} · {{.Booking.ScreenFormat}}</p><p><strong>{{.StartsAt}}</strong></p><p>Seats: <strong>{{range $i,$s := .Booking.SeatIDs}}{{if $i}}, {{end}}{{$s}}{{end}}</strong></p><img src="data:image/png;base64,{{.QR}}" alt="Admission QR code"><p class="muted">Booking {{.Booking.ID}} · Keep this code private. It admits the ticket once.</p></main></body></html>`))
+
+func formatCinemaTime(value time.Time, timezone string) string {
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		location = time.UTC
+	}
+	return value.In(location).Format("Mon, 02 Jan 2006 at 03:04 PM MST")
 }
 
 func parsePathUUID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
@@ -264,6 +403,10 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		utils.WriteError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrSeatsUnavailable), errors.Is(err, ErrIdempotencyReuse):
 		utils.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrNotCancellable), errors.Is(err, ErrTicketUsed):
+		utils.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrTicketInvalid):
+		utils.WriteError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, ErrForbidden):
 		utils.WriteError(w, http.StatusForbidden, err.Error())
 	case strings.Contains(err.Error(), "Idempotency-Key"):
