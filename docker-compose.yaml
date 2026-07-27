@@ -57,6 +57,19 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_replace_me}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-replace_me}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-replace_me}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      TICKET_SIGNING_SECRET: ${TICKET_SIGNING_SECRET:-local-ticket-signing-secret-change-in-production}
+      SCANNER_API_KEY: ${SCANNER_API_KEY:-local-scanner-api-key-change-me}
+      NOTIFICATION_LOG_ONLY: ${NOTIFICATION_LOG_ONLY:-true}
+      SMTP_ADDR: ${SMTP_ADDR:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_API_TOKEN: ${SMS_API_TOKEN:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL:-}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

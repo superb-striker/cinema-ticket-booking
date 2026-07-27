@@ -16,6 +16,7 @@ import (
 	"github.com/superb-striker/cinema/internal/config"
 	"github.com/superb-striker/cinema/internal/database"
 	"github.com/superb-striker/cinema/internal/httpmiddleware"
+	"github.com/superb-striker/cinema/internal/notification"
 	"github.com/superb-striker/cinema/internal/utils"
 )
 
@@ -37,16 +38,24 @@ func main() {
 	}
 	defer rdb.Close()
 
-	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure)
+	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure, cfg.PublicBaseURL)
+	if err := authService.ConfigureGoogle(ctx, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL); err != nil {
+		log.Fatal(err)
+	}
 	authHandler := auth.NewHandler(authService)
 	go authService.RunMaintenance(ctx, time.Hour)
 	repo := checkout.NewPostgresRepository(db)
 	holds := checkout.NewRedisHoldStore(rdb)
 	payments := checkout.NewRazorpay(cfg.RazorpayKeyID, cfg.RazorpayKeySecret, cfg.RazorpayWebhookSecret)
 	checkoutService := checkout.NewService(repo, holds, payments, cfg.HoldTTL)
-	checkoutHandler := checkout.NewHandler(checkoutService, repo, payments)
+	checkoutHandler := checkout.NewHandler(checkoutService, repo, payments, cfg.TicketSigningSecret, cfg.ScannerAPIKey)
 	worker := checkout.NewWorker(repo, payments, cfg.WorkerInterval)
 	go worker.Run(ctx)
+	notificationWorker := notification.NewWorker(db, notification.Config{PublicBaseURL: cfg.PublicBaseURL,
+		LogOnly: cfg.NotificationLogOnly, SMTPAddr: cfg.SMTPAddr, SMTPUsername: cfg.SMTPUsername,
+		SMTPPassword: cfg.SMTPPassword, SMTPFrom: cfg.SMTPFrom, SMSWebhookURL: cfg.SMSWebhookURL,
+		SMSAPIToken: cfg.SMSAPIToken}, cfg.WorkerInterval)
+	go notificationWorker.Run(ctx)
 	limiter, err := httpmiddleware.NewRateLimiter(rdb, "cinema", cfg.TrustedProxyCIDRs)
 	if err != nil {
 		log.Fatal(err)
@@ -55,8 +64,16 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/v1/auth/register", limiter.Limit("register", 5, time.Hour, http.HandlerFunc(authHandler.Register)))
 	mux.Handle("POST /api/v1/auth/login", limiter.Limit("login", 10, 5*time.Minute, http.HandlerFunc(authHandler.Login)))
+	mux.Handle("POST /api/v1/auth/password-reset/request", limiter.Limit("password-reset", 5, time.Hour, http.HandlerFunc(authHandler.RequestPasswordReset)))
+	mux.Handle("POST /api/v1/auth/password-reset/confirm", limiter.Limit("password-reset-confirm", 10, time.Hour, http.HandlerFunc(authHandler.ResetPassword)))
+	mux.HandleFunc("GET /api/v1/auth/google", authHandler.GoogleLogin)
+	mux.HandleFunc("GET /api/v1/auth/google/callback", authHandler.GoogleCallback)
+	mux.HandleFunc("GET /api/v1/client-config", func(w http.ResponseWriter, _ *http.Request) {
+		utils.WriteJSON(w, http.StatusOK, map[string]bool{"google_login": cfg.GoogleClientID != ""})
+	})
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authService.Require(http.HandlerFunc(authHandler.Me)))
+	mux.Handle("PATCH /api/v1/auth/profile", authService.Require(http.HandlerFunc(authHandler.UpdateProfile)))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seat-events", checkoutHandler.SeatEvents)
@@ -64,6 +81,10 @@ func main() {
 	mux.Handle("POST /api/v1/screenings/{screeningID}/holds", authService.Require(limiter.LimitBy("holds", 30, time.Minute, userKey, http.HandlerFunc(checkoutHandler.CreateHold))))
 	mux.Handle("POST /api/v1/screenings/{screeningID}/holds/{holdID}/checkout", authService.Require(limiter.LimitBy("checkout", 10, time.Minute, userKey, http.HandlerFunc(checkoutHandler.Checkout))))
 	mux.Handle("GET /api/v1/orders/{orderID}", authService.Require(http.HandlerFunc(checkoutHandler.Order)))
+	mux.Handle("GET /api/v1/bookings", authService.Require(http.HandlerFunc(checkoutHandler.Bookings)))
+	mux.Handle("POST /api/v1/bookings/{orderID}/cancel", authService.Require(limiter.LimitBy("cancel", 5, time.Hour, userKey, http.HandlerFunc(checkoutHandler.CancelBooking))))
+	mux.Handle("GET /api/v1/bookings/{orderID}/ticket", authService.Require(http.HandlerFunc(checkoutHandler.DownloadTicket)))
+	mux.Handle("POST /api/v1/tickets/validate", limiter.Limit("ticket-scan", 120, time.Minute, http.HandlerFunc(checkoutHandler.ValidateTicket)))
 	mux.Handle("POST /api/v1/orders/{orderID}/verify-payment", authService.Require(limiter.LimitBy("verify-payment", 20, time.Minute, userKey, http.HandlerFunc(checkoutHandler.VerifyPayment))))
 	mux.HandleFunc("POST /api/v1/webhooks/razorpay", checkoutHandler.Webhook)
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
