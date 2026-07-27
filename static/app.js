@@ -12,11 +12,26 @@
       "Content-Type": "application/json",
       ...(options.headers || {}),
     };
-    const response = await fetch(path, options);
+    let response;
+    try {
+      response = await fetch(path, options);
+    } catch (error) {
+      if (!options.method || options.method === "GET") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        response = await fetch(path, options);
+      } else {
+        throw new Error("Network unavailable. Check your connection and retry.");
+      }
+    }
     if (response.status === 204) return null;
     const data = await response
       .json()
       .catch(() => ({ error: "Invalid server response" }));
+    if (response.status === 401) {
+      state.user = null;
+      showSignedOut();
+      throw new Error("Your session expired. Sign in again to continue.");
+    }
     if (!response.ok) throw new Error(data.error || "Request failed");
     return data;
   }
@@ -25,22 +40,41 @@
     el.textContent = text;
     el.className = type;
   }
+  function showRetry(root, text, action) {
+    root.innerHTML = "";
+    const label = document.createElement("p");
+    label.className = "error";
+    label.textContent = text;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry";
+    retry.onclick = action;
+    root.append(label, retry);
+  }
   async function loadIdentity() {
     try {
       state.user = await api("/api/v1/auth/me");
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
       $("logout").classList.remove("hidden");
+      $("bookings").classList.remove("hidden");
+      $("phone").value = state.user.phone || "";
+      await loadBookings();
     } catch {
       state.user = null;
+      showSignedOut();
     }
+  }
+  function showSignedOut() {
+    $("identity").textContent = "Not signed in";
+    $("logout").classList.add("hidden");
+    $("auth").classList.remove("hidden");
+    $("bookings").classList.add("hidden");
   }
   $("logout").onclick = async () => {
     await api("/api/v1/auth/logout", { method: "POST" });
     state.user = null;
-    $("identity").textContent = "Not signed in";
-    $("logout").classList.add("hidden");
-    $("auth").classList.remove("hidden");
+    showSignedOut();
     message("Signed out", "success");
   };
   $("authForm").addEventListener("click", async (event) => {
@@ -57,16 +91,47 @@
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
       $("logout").classList.remove("hidden");
+      $("bookings").classList.remove("hidden");
+      $("phone").value = state.user.phone || "";
+      await loadBookings();
       message("Signed in", "success");
     } catch (error) {
       message(error.message, "error");
     }
   });
+  const resetToken = new URLSearchParams(location.search).get("reset_token");
+  function openReset() {
+    $("resetPanel").classList.remove("hidden");
+    $("resetEmail").classList.toggle("hidden", Boolean(resetToken));
+    $("resetPassword").classList.toggle("hidden", !resetToken);
+    $("resetTitle").textContent = resetToken ? "Choose a new password" : "Request password reset";
+    (resetToken ? $("resetPassword") : $("resetEmail")).focus();
+  }
+  $("forgotPassword").onclick = openReset;
+  $("closeReset").onclick = () => $("resetPanel").classList.add("hidden");
+  $("resetForm").onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      if (resetToken) {
+        await api("/api/v1/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ token: resetToken, password: $("resetPassword").value }) });
+        history.replaceState({}, "", "/");
+        message("Password updated. Sign in with your new password.", "success");
+      } else {
+        const result = await api("/api/v1/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email: $("resetEmail").value }) });
+        message(result.message, "success");
+      }
+      $("resetPanel").classList.add("hidden");
+    } catch (error) { message(error.message, "error"); }
+  };
+  if (resetToken) openReset();
+  if (new URLSearchParams(location.search).has("oauth_error")) message("Google sign-in could not be completed.", "error");
+  api("/api/v1/client-config").then((config) => $("googleLogin").classList.toggle("hidden", !config.google_login)).catch(() => {});
   let screeningRequest = 0;
   async function loadScreenings() {
     const request = ++screeningRequest;
     const root = $("screenings");
     root.setAttribute("aria-busy", "true");
+    if (!root.children.length) root.innerHTML = '<p class="muted">Loading screenings…</p>';
     try {
       const params = new URLSearchParams();
       const filters = {
@@ -95,6 +160,7 @@
     } catch (error) {
       if (request !== screeningRequest) return;
       message(error.message, "error");
+      showRetry(root, "Screenings could not be loaded.", loadScreenings);
     } finally {
       root.setAttribute("aria-busy", "false");
     }
@@ -144,6 +210,7 @@
       renderSeats();
     } catch (error) {
       message(error.message, "error");
+      showRetry($("seats"), "Seat availability could not be loaded.", loadSeats);
     }
   }
   function renderSeats() {
@@ -170,8 +237,11 @@
     $("selection").textContent = count
       ? `${[...state.selected].join(", ")} (${count} seat${count > 1 ? "s" : ""})`
       : "No seats selected";
-    $("price").textContent = count
-      ? `Total ₹${((count * state.screening.base_price_paise) / 100).toFixed(2)}`
+    const subtotal = count * state.screening.base_price_paise;
+    const fee = Math.ceil((subtotal * 300) / 10000);
+    const tax = Math.ceil((fee * 1800) / 10000);
+    $("price").innerHTML = count
+      ? `<span>Tickets</span><span>₹${money(subtotal)}</span><span>Convenience fee</span><span>₹${money(fee)}</span><span>GST on fee</span><span>₹${money(tax)}</span><strong>Total</strong><strong>₹${money(subtotal + fee + tax)}</strong>`
       : "";
     $("checkout").disabled = !count;
   }
@@ -236,6 +306,7 @@
         message(`Booking confirmed: ${order.seat_ids.join(", ")}`, "success");
         state.selected.clear();
         await loadSeats();
+        await loadBookings();
         return;
       }
       if (
@@ -251,10 +322,73 @@
       "Payment is still processing. Your order remains available in the API.",
     );
   }
+  async function loadBookings() {
+    if (!state.user) return;
+    const root = $("bookingList");
+    root.setAttribute("aria-busy", "true");
+    if (!root.children.length) root.innerHTML = '<p class="muted">Loading bookings…</p>';
+    try {
+      const bookings = await api("/api/v1/bookings");
+      root.innerHTML = bookings.length ? "" : '<p class="muted">No bookings yet.</p>';
+      bookings.forEach((booking) => {
+        const card = document.createElement("article");
+        card.className = "booking-card";
+        card.innerHTML = `<h3>${escapeHTML(booking.movie_title)}</h3><p>${new Date(booking.starts_at).toLocaleString()} · ${escapeHTML(booking.cinema_name)}, ${escapeHTML(booking.cinema_city)} · ${escapeHTML(booking.screen_name)} · ${escapeHTML(booking.format)}</p><p>Seats <strong>${booking.seat_ids.map(escapeHTML).join(", ")}</strong> · ₹${money(booking.amount_paise)} · <strong>${escapeHTML(booking.status.replaceAll("_", " "))}</strong></p>`;
+        const actions = document.createElement("div");
+        actions.className = "row";
+        if (booking.status === "confirmed") {
+          const ticket = document.createElement("a");
+          ticket.className = "button";
+          ticket.href = `/api/v1/bookings/${booking.id}/ticket`;
+          ticket.textContent = "Download ticket";
+          actions.append(ticket);
+        }
+        if (booking.can_cancel) {
+          const cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.textContent = "Cancel & refund";
+          cancel.onclick = () => cancelBooking(booking.id, cancel);
+          actions.append(cancel);
+        }
+        card.append(actions);
+        root.append(card);
+      });
+    } catch (error) { message(error.message, "error"); showRetry(root, "Bookings could not be loaded.", loadBookings); }
+    finally { root.setAttribute("aria-busy", "false"); }
+  }
+  async function cancelBooking(id, button) {
+    const reason = prompt("Why are you cancelling this booking?");
+    if (!reason?.trim()) return;
+    button.disabled = true;
+    try {
+      await api(`/api/v1/bookings/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason: reason.trim() }) });
+      message("Cancellation accepted. Your refund is being processed.", "success");
+      await Promise.all([loadBookings(), state.screening ? loadSeats() : Promise.resolve()]);
+    } catch (error) { message(error.message, "error"); button.disabled = false; }
+  }
+  $("refreshBookings").onclick = loadBookings;
+  $("profileForm").onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      state.user = await api("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ phone: $("phone").value }) });
+      message("Notification preferences saved.", "success");
+    } catch (error) { message(error.message, "error"); }
+  };
+  function money(paise) { return (paise / 100).toFixed(2); }
   function escapeHTML(value) {
     const div = document.createElement("div");
     div.textContent = value;
     return div.innerHTML;
   }
+  let wasOnline = navigator.onLine;
+  function updateConnectivity() {
+    const online = navigator.onLine;
+    $("offline").classList.toggle("hidden", online);
+    if (online && !wasOnline) message("Connection restored. You can retry your last action.", "success");
+    wasOnline = online;
+  }
+  addEventListener("online", updateConnectivity);
+  addEventListener("offline", updateConnectivity);
+  updateConnectivity();
   Promise.all([loadIdentity(), loadScreenings()]);
 })();

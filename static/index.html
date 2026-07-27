@@ -163,6 +163,13 @@
         align-items: center;
         gap: 15px;
       }
+      .notice { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; background: #513b12; }
+      .booking-list { display: grid; gap: 12px; }
+      .booking-card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+      .booking-card h3 { margin: 0 0 8px; }
+      .totals { display: grid; grid-template-columns: auto auto; gap: 4px 18px; }
+      .totals span:nth-child(even) { text-align: right; }
+      a.button { display: inline-block; text-decoration: none; border-radius: 7px; border: 1px solid var(--line); padding: 9px 12px; color: var(--text); }
       .screen {
         height: 4px;
         background: linear-gradient(
@@ -203,6 +210,7 @@
           <button id="logout" class="hidden" type="button">Sign out</button>
         </div>
       </header>
+      <div id="offline" class="notice hidden" role="alert">You are offline. Previously loaded details remain visible; reconnect to continue.</div>
       <section id="auth" class="panel">
         <h2>Sign in</h2>
         <p class="muted">
@@ -227,6 +235,19 @@
           /><button class="primary" data-action="login">Sign in</button
           ><button data-action="register">Create account</button>
         </form>
+        <div class="row" style="margin-top:12px">
+          <button id="forgotPassword" type="button">Forgot password?</button>
+          <a id="googleLogin" class="button hidden" href="/api/v1/auth/google">Continue with Google</a>
+        </div>
+      </section>
+      <section id="resetPanel" class="panel hidden">
+        <h2 id="resetTitle">Reset password</h2>
+        <form id="resetForm" class="row">
+          <input id="resetEmail" type="email" autocomplete="email" placeholder="Email" />
+          <input id="resetPassword" class="hidden" type="password" autocomplete="new-password" minlength="12" maxlength="72" placeholder="New password" />
+          <button class="primary" type="submit">Continue</button>
+          <button id="closeReset" type="button">Cancel</button>
+        </form>
       </section>
       <section class="panel">
         <h2>Upcoming screenings</h2>
@@ -250,16 +271,24 @@
         <div class="summary">
           <div>
             <strong id="selection">No seats selected</strong>
-            <div id="price" class="muted"></div>
+            <div id="price" class="totals muted" aria-live="polite"></div>
           </div>
           <button id="checkout" class="primary" disabled>
             Hold seats &amp; pay
           </button>
         </div>
       </section>
+      <section id="bookings" class="panel hidden">
+        <div class="summary"><h2>Your bookings</h2><button id="refreshBookings" type="button">Refresh</button></div>
+        <form id="profileForm" class="row" style="margin-bottom:16px">
+          <label class="muted">SMS confirmations <input id="phone" type="tel" autocomplete="tel" placeholder="+919876543210" /></label>
+          <button type="submit">Save phone</button>
+        </form>
+        <div id="bookingList" class="booking-list" aria-live="polite" aria-busy="false"></div>
+      </section>
       <div id="message" role="status" aria-live="polite"></div>
     </main>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="/app.js?v=priority1-catalog-1" defer></script>
+    <script src="/app.js?v=priority1-customer-2" defer></script>
   </body>
 </html>
