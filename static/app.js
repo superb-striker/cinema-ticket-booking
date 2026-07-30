@@ -399,5 +399,27 @@
   addEventListener("online", updateConnectivity);
   addEventListener("offline", updateConnectivity);
   updateConnectivity();
+  let installPrompt;
+  addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    installPrompt = event;
+    $("installApp").classList.remove("hidden");
+  });
+  $("installApp").onclick = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    installPrompt = null;
+    $("installApp").classList.add("hidden");
+  };
+  addEventListener("appinstalled", () => {
+    installPrompt = null;
+    $("installApp").classList.add("hidden");
+    message("Cinema Booking was installed.", "success");
+  });
+  if ("serviceWorker" in navigator) {
+    addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {
+      message("Offline support could not be enabled on this device.", "error");
+    }));
+  }
   Promise.all([loadIdentity(), loadScreenings()]);
 })();

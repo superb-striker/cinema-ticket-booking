@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#171a20" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Cinema Booking</title>
     <style>
       :root {
@@ -208,6 +211,7 @@
         <div class="row">
           <div id="identity" class="muted">Not signed in</div>
           <button id="logout" class="hidden" type="button">Sign out</button>
+          <button id="installApp" class="hidden" type="button">Install app</button>
         </div>
       </header>
       <div id="offline" class="notice hidden" role="alert">You are offline. Previously loaded details remain visible; reconnect to continue.</div>
@@ -289,6 +293,6 @@
       <div id="message" role="status" aria-live="polite"></div>
     </main>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="/app.js?v=priority1-customer-2" defer></script>
+    <script src="/app.js?v=priority1-customer-3" defer></script>
   </body>
 </html>
