@@ -136,11 +136,13 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 	var existing Order
 	err = tx.QueryRow(ctx, `SELECT id, screening_id, user_id, hold_id, status, amount_paise, currency,
 		subtotal_paise, convenience_fee_paise, tax_paise,
+		cancellation_cutoff_minutes,cancellation_refund_percent,COALESCE(cancellation_refund_amount_paise,0),
 		provider, COALESCE(provider_order_id,''), COALESCE(provider_payment_id,''), expires_at
 		FROM orders WHERE user_id=$1 AND idempotency_key=$2`, hold.UserID, idempotencyKey).
 		Scan(&existing.ID, &existing.ScreeningID, &existing.UserID, &existing.HoldID, &existing.Status,
 			&existing.AmountPaise, &existing.Currency, &existing.SubtotalPaise, &existing.ConvenienceFeePaise,
-			&existing.TaxPaise, &existing.Provider, &existing.ProviderOrderID,
+			&existing.TaxPaise, &existing.CancellationCutoffMinutes, &existing.CancellationRefundPercent,
+			&existing.CancellationRefundAmountPaise, &existing.Provider, &existing.ProviderOrderID,
 			&existing.ProviderPaymentID, &existing.ExpiresAt)
 	if err == nil {
 		if existing.HoldID != hold.ID {
@@ -154,9 +156,14 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 	}
 
 	var price int64
+	var cancellationCutoff, cancellationRefundPercent int
 	var currency string
-	err = tx.QueryRow(ctx, `SELECT base_price_paise, currency FROM screenings
-		WHERE id=$1 AND status='scheduled' AND sales_end_at > now() FOR UPDATE`, hold.ScreeningID).Scan(&price, &currency)
+	err = tx.QueryRow(ctx, `SELECT sc.base_price_paise,sc.currency,
+		COALESCE(cp.cutoff_minutes,120),COALESCE(cp.refund_percent,100)
+		FROM screenings sc JOIN screens s ON s.id=sc.screen_id
+		LEFT JOIN cinema_cancellation_policies cp ON cp.cinema_id=s.cinema_id
+		WHERE sc.id=$1 AND sc.status='scheduled' AND sc.sales_end_at>now() FOR UPDATE OF sc`, hold.ScreeningID).
+		Scan(&price, &currency, &cancellationCutoff, &cancellationRefundPercent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, ErrScreeningClosed
 	}
@@ -171,14 +178,16 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 		ID: uuid.New(), UserID: hold.UserID, ScreeningID: hold.ScreeningID, HoldID: hold.ID,
 		SeatIDs: hold.SeatIDs, Status: "payment_pending", SubtotalPaise: subtotal,
 		ConvenienceFeePaise: convenienceFee, TaxPaise: tax, AmountPaise: subtotal + convenienceFee + tax,
+		CancellationCutoffMinutes: cancellationCutoff, CancellationRefundPercent: cancellationRefundPercent,
 		Currency: currency, Provider: "razorpay", ExpiresAt: hold.ExpiresAt,
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO orders
 		(id,user_id,screening_id,hold_id,idempotency_key,status,amount_paise,currency,provider,expires_at,
-		 subtotal_paise,convenience_fee_paise,tax_paise)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, order.ID, order.UserID, order.ScreeningID,
+		 subtotal_paise,convenience_fee_paise,tax_paise,cancellation_cutoff_minutes,cancellation_refund_percent)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, order.ID, order.UserID, order.ScreeningID,
 		order.HoldID, idempotencyKey, order.Status, order.AmountPaise, order.Currency, order.Provider, order.ExpiresAt,
-		order.SubtotalPaise, order.ConvenienceFeePaise, order.TaxPaise)
+		order.SubtotalPaise, order.ConvenienceFeePaise, order.TaxPaise, order.CancellationCutoffMinutes,
+		order.CancellationRefundPercent)
 	if err != nil {
 		return Order{}, false, mapInventoryError(err)
 	}
@@ -246,11 +255,13 @@ func (p *PostgresRepository) FailOrder(ctx context.Context, orderID uuid.UUID) e
 func (p *PostgresRepository) Order(ctx context.Context, orderID, userID uuid.UUID) (Order, error) {
 	var order Order
 	err := p.db.QueryRow(ctx, `SELECT id,screening_id,user_id,hold_id,status,amount_paise,currency,
-		subtotal_paise,convenience_fee_paise,tax_paise,provider,
+		subtotal_paise,convenience_fee_paise,tax_paise,cancellation_cutoff_minutes,
+		cancellation_refund_percent,COALESCE(cancellation_refund_amount_paise,0),provider,
 		COALESCE(provider_order_id,''),COALESCE(provider_payment_id,''),expires_at
 		FROM orders WHERE id=$1 AND user_id=$2`, orderID, userID).Scan(&order.ID, &order.ScreeningID, &order.UserID,
 		&order.HoldID, &order.Status, &order.AmountPaise, &order.Currency, &order.SubtotalPaise,
-		&order.ConvenienceFeePaise, &order.TaxPaise, &order.Provider, &order.ProviderOrderID,
+		&order.ConvenienceFeePaise, &order.TaxPaise, &order.CancellationCutoffMinutes,
+		&order.CancellationRefundPercent, &order.CancellationRefundAmountPaise, &order.Provider, &order.ProviderOrderID,
 		&order.ProviderPaymentID, &order.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, ErrForbidden
@@ -310,10 +321,11 @@ func (p *PostgresRepository) Booking(ctx context.Context, orderID, userID uuid.U
 }
 
 const bookingQuery = `SELECT o.id,o.screening_id,o.user_id,o.hold_id,o.status,o.amount_paise,o.currency,
-	o.subtotal_paise,o.convenience_fee_paise,o.tax_paise,o.provider,
+	o.subtotal_paise,o.convenience_fee_paise,o.tax_paise,o.cancellation_cutoff_minutes,
+	o.cancellation_refund_percent,COALESCE(o.cancellation_refund_amount_paise,0),o.provider,
 	COALESCE(o.provider_order_id,''),COALESCE(o.provider_payment_id,''),o.expires_at,
 	m.title,c.name,c.city,c.timezone,s.name,s.format,sc.starts_at,o.created_at,
-	(o.status='confirmed' AND sc.starts_at > now()+interval '2 hours') AS can_cancel
+	(o.status='confirmed' AND sc.starts_at > now()+(o.cancellation_cutoff_minutes || ' minutes')::interval) AS can_cancel
 	FROM orders o JOIN screenings sc ON sc.id=o.screening_id
 	JOIN movies m ON m.id=sc.movie_id JOIN screens s ON s.id=sc.screen_id JOIN cinemas c ON c.id=s.cinema_id`
 
@@ -322,7 +334,8 @@ type rowScanner interface{ Scan(...any) error }
 func scanBooking(row rowScanner) (Booking, error) {
 	var b Booking
 	err := row.Scan(&b.ID, &b.ScreeningID, &b.UserID, &b.HoldID, &b.Status, &b.AmountPaise, &b.Currency,
-		&b.SubtotalPaise, &b.ConvenienceFeePaise, &b.TaxPaise, &b.Provider, &b.ProviderOrderID,
+		&b.SubtotalPaise, &b.ConvenienceFeePaise, &b.TaxPaise, &b.CancellationCutoffMinutes,
+		&b.CancellationRefundPercent, &b.CancellationRefundAmountPaise, &b.Provider, &b.ProviderOrderID,
 		&b.ProviderPaymentID, &b.ExpiresAt, &b.MovieTitle, &b.CinemaName, &b.CinemaCity, &b.CinemaTimezone, &b.ScreenName,
 		&b.ScreenFormat, &b.StartsAt, &b.CreatedAt, &b.CanCancel)
 	return b, err
@@ -345,7 +358,7 @@ func (p *PostgresRepository) bookingSeats(ctx context.Context, orderID uuid.UUID
 	return seats, rows.Err()
 }
 
-func (p *PostgresRepository) CancelOrder(ctx context.Context, orderID, userID uuid.UUID, cutoff time.Duration, reason string) (Booking, error) {
+func (p *PostgresRepository) CancelOrder(ctx context.Context, orderID, userID uuid.UUID, reason string) (Booking, error) {
 	tx, err := p.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Booking{}, err
@@ -353,19 +366,25 @@ func (p *PostgresRepository) CancelOrder(ctx context.Context, orderID, userID uu
 	defer tx.Rollback(ctx)
 	var status string
 	var startsAt time.Time
-	err = tx.QueryRow(ctx, `SELECT o.status,sc.starts_at FROM orders o JOIN screenings sc ON sc.id=o.screening_id
-		WHERE o.id=$1 AND o.user_id=$2 FOR UPDATE OF o`, orderID, userID).Scan(&status, &startsAt)
+	var cutoffMinutes, refundPercent int
+	var amountPaise int64
+	err = tx.QueryRow(ctx, `SELECT o.status,sc.starts_at,o.cancellation_cutoff_minutes,
+		o.cancellation_refund_percent,o.amount_paise FROM orders o JOIN screenings sc ON sc.id=o.screening_id
+		WHERE o.id=$1 AND o.user_id=$2 FOR UPDATE OF o`, orderID, userID).
+		Scan(&status, &startsAt, &cutoffMinutes, &refundPercent, &amountPaise)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Booking{}, ErrForbidden
 	}
 	if err != nil {
 		return Booking{}, err
 	}
-	if status != "confirmed" || !startsAt.After(time.Now().Add(cutoff)) {
+	if status != "confirmed" || !startsAt.After(time.Now().Add(time.Duration(cutoffMinutes)*time.Minute)) {
 		return Booking{}, ErrNotCancellable
 	}
+	refundAmount := amountPaise * int64(refundPercent) / 100
 	if _, err = tx.Exec(ctx, `UPDATE orders SET status='refund_pending',cancellation_requested_at=now(),
-		cancellation_reason=$2,updated_at=now() WHERE id=$1`, orderID, reason); err != nil {
+		cancellation_reason=$2,cancellation_refund_amount_paise=$3,updated_at=now() WHERE id=$1`,
+		orderID, reason, refundAmount); err != nil {
 		return Booking{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE order_seats SET status='released' WHERE order_id=$1 AND status='confirmed'`, orderID); err != nil {
@@ -442,7 +461,7 @@ func (p *PostgresRepository) ClaimRefund(ctx context.Context, lease time.Duratio
 		FROM candidate c WHERE pa.id=c.id
 		RETURNING pa.id,pa.order_id,pa.attempts
 	)
-	SELECT c.id,c.order_id,o.provider_payment_id,o.amount_paise,c.attempts,
+	SELECT c.id,c.order_id,o.provider_payment_id,COALESCE(o.cancellation_refund_amount_paise,o.amount_paise),c.attempts,
 		COALESCE(o.cancellation_reason,'late payment after seat release')
 	FROM claimed c JOIN orders o ON o.id=c.order_id`, durationInterval(lease)).Scan(
 		&action.ID, &action.OrderID, &action.ProviderPaymentID, &action.AmountPaise, &action.Attempts, &action.Reason)

@@ -63,22 +63,25 @@ type Hold struct {
 }
 
 type Order struct {
-	ID                     uuid.UUID `json:"id"`
-	ScreeningID            uuid.UUID `json:"screening_id"`
-	UserID                 uuid.UUID `json:"user_id"`
-	HoldID                 uuid.UUID `json:"hold_id"`
-	SeatIDs                []string  `json:"seat_ids"`
-	Status                 string    `json:"status"`
-	AmountPaise            int64     `json:"amount_paise"`
-	SubtotalPaise          int64     `json:"subtotal_paise"`
-	ConvenienceFeePaise    int64     `json:"convenience_fee_paise"`
-	TaxPaise               int64     `json:"tax_paise"`
-	Currency               string    `json:"currency"`
-	Provider               string    `json:"provider"`
-	ProviderOrderID        string    `json:"provider_order_id,omitempty"`
-	ProviderPaymentID      string    `json:"provider_payment_id,omitempty"`
-	ExpiresAt              time.Time `json:"expires_at"`
-	ReconciliationAttempts int       `json:"-"`
+	ID                            uuid.UUID `json:"id"`
+	ScreeningID                   uuid.UUID `json:"screening_id"`
+	UserID                        uuid.UUID `json:"user_id"`
+	HoldID                        uuid.UUID `json:"hold_id"`
+	SeatIDs                       []string  `json:"seat_ids"`
+	Status                        string    `json:"status"`
+	AmountPaise                   int64     `json:"amount_paise"`
+	SubtotalPaise                 int64     `json:"subtotal_paise"`
+	ConvenienceFeePaise           int64     `json:"convenience_fee_paise"`
+	TaxPaise                      int64     `json:"tax_paise"`
+	CancellationCutoffMinutes     int       `json:"cancellation_cutoff_minutes"`
+	CancellationRefundPercent     int       `json:"cancellation_refund_percent"`
+	CancellationRefundAmountPaise int64     `json:"cancellation_refund_amount_paise,omitempty"`
+	Currency                      string    `json:"currency"`
+	Provider                      string    `json:"provider"`
+	ProviderOrderID               string    `json:"provider_order_id,omitempty"`
+	ProviderPaymentID             string    `json:"provider_payment_id,omitempty"`
+	ExpiresAt                     time.Time `json:"expires_at"`
+	ReconciliationAttempts        int       `json:"-"`
 }
 
 type Booking struct {
@@ -105,7 +108,7 @@ type Repository interface {
 	Order(context.Context, uuid.UUID, uuid.UUID) (Order, error)
 	Bookings(context.Context, uuid.UUID, int) ([]Booking, error)
 	Booking(context.Context, uuid.UUID, uuid.UUID) (Booking, error)
-	CancelOrder(context.Context, uuid.UUID, uuid.UUID, time.Duration, string) (Booking, error)
+	CancelOrder(context.Context, uuid.UUID, uuid.UUID, string) (Booking, error)
 	AdmitTicket(context.Context, uuid.UUID) (time.Time, error)
 	ConfirmPayment(context.Context, PaymentEvent) (bool, error)
 	ExpireOrders(context.Context) (int64, error)

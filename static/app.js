@@ -344,6 +344,10 @@
           actions.append(ticket);
         }
         if (booking.can_cancel) {
+		  const policy = document.createElement("p");
+		  policy.className = "muted";
+		  policy.textContent = `Cancel at least ${formatMinutes(booking.cancellation_cutoff_minutes)} before showtime for a ${booking.cancellation_refund_percent}% refund (₹${money(Math.floor(booking.amount_paise * booking.cancellation_refund_percent / 100))}).`;
+		  card.append(policy);
           const cancel = document.createElement("button");
           cancel.type = "button";
           cancel.textContent = "Cancel & refund";
@@ -375,6 +379,11 @@
     } catch (error) { message(error.message, "error"); }
   };
   function money(paise) { return (paise / 100).toFixed(2); }
+  function formatMinutes(minutes) {
+    if (minutes < 60) return `${minutes} minutes`;
+    const hours = minutes / 60;
+    return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hours`;
+  }
   function escapeHTML(value) {
     const div = document.createElement("div");
     div.textContent = value;

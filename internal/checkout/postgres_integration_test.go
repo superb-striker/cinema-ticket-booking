@@ -138,8 +138,9 @@ func TestPostgresCancellationReleasesSeatAndQueuesRefund(t *testing.T) {
 	}
 	providerPaymentID := "pay_cancel_" + orderID.String()
 	if _, err = db.Exec(ctx, `INSERT INTO orders(id,user_id,screening_id,hold_id,idempotency_key,status,
-		amount_paise,subtotal_paise,convenience_fee_paise,tax_paise,currency,provider,provider_payment_id,expires_at)
-		VALUES($1,$2,$3,$4,$5,'confirmed',$6,$6,0,0,'INR','razorpay',$7,now()+interval '10 minutes')`,
+		amount_paise,subtotal_paise,convenience_fee_paise,tax_paise,currency,provider,provider_payment_id,expires_at,
+		cancellation_cutoff_minutes,cancellation_refund_percent)
+		VALUES($1,$2,$3,$4,$5,'confirmed',$6,$6,0,0,'INR','razorpay',$7,now()+interval '10 minutes',90,65)`,
 		orderID, userID, screeningID, uuid.New(), uuid.NewString(), price, providerPaymentID); err != nil {
 		t.Fatal(err)
 	}
@@ -153,12 +154,16 @@ func TestPostgresCancellationReleasesSeatAndQueuesRefund(t *testing.T) {
 		_, _ = db.Exec(context.Background(), `DELETE FROM orders WHERE id=$1`, orderID)
 		_, _ = db.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID)
 	})
-	booking, err := repo.CancelOrder(ctx, orderID, userID, 2*time.Hour, "plans changed")
+	booking, err := repo.CancelOrder(ctx, orderID, userID, "plans changed")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if booking.Status != "refund_pending" || booking.CanCancel {
 		t.Fatalf("unexpected cancelled booking: %+v", booking)
+	}
+	wantRefund := price * 65 / 100
+	if booking.CancellationRefundAmountPaise != wantRefund {
+		t.Fatalf("refund=%d want=%d", booking.CancellationRefundAmountPaise, wantRefund)
 	}
 	var seatStatus, actionStatus string
 	if err := db.QueryRow(ctx, `SELECT os.status,pa.status FROM order_seats os
@@ -167,6 +172,10 @@ func TestPostgresCancellationReleasesSeatAndQueuesRefund(t *testing.T) {
 	}
 	if seatStatus != "released" || actionStatus != "pending" {
 		t.Fatalf("seat=%s action=%s", seatStatus, actionStatus)
+	}
+	action, ok, err := repo.ClaimRefund(ctx, 30*time.Second)
+	if err != nil || !ok || action.OrderID != orderID || action.AmountPaise != wantRefund {
+		t.Fatalf("refund action=%+v ok=%v err=%v", action, ok, err)
 	}
 }
 

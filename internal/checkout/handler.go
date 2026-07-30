@@ -64,7 +64,7 @@ func (h *Handler) CancelBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := auth.UserFromContext(r.Context())
-	booking, err := h.repo.CancelOrder(r.Context(), orderID, user.ID, 2*time.Hour, body.Reason)
+	booking, err := h.repo.CancelOrder(r.Context(), orderID, user.ID, body.Reason)
 	if err != nil {
 		writeDomainError(w, err)
 		return
