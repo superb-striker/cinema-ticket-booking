@@ -38,7 +38,7 @@ func main() {
 	}
 	defer rdb.Close()
 
-	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure, cfg.PublicBaseURL)
+	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure, cfg.PublicBaseURL, cfg.VerificationSecret)
 	if err := authService.ConfigureGoogle(ctx, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL); err != nil {
 		log.Fatal(err)
 	}
@@ -62,10 +62,12 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	userKey := func(r *http.Request) string { user, _ := auth.UserFromContext(r.Context()); return user.ID.String() }
 	mux.Handle("POST /api/v1/auth/register", limiter.Limit("register", 5, time.Hour, http.HandlerFunc(authHandler.Register)))
 	mux.Handle("POST /api/v1/auth/login", limiter.Limit("login", 10, 5*time.Minute, http.HandlerFunc(authHandler.Login)))
 	mux.Handle("POST /api/v1/auth/password-reset/request", limiter.Limit("password-reset", 5, time.Hour, http.HandlerFunc(authHandler.RequestPasswordReset)))
 	mux.Handle("POST /api/v1/auth/password-reset/confirm", limiter.Limit("password-reset-confirm", 10, time.Hour, http.HandlerFunc(authHandler.ResetPassword)))
+	mux.Handle("POST /api/v1/auth/email-verification/confirm", limiter.Limit("email-verification-confirm", 20, time.Hour, http.HandlerFunc(authHandler.ConfirmEmail)))
 	mux.HandleFunc("GET /api/v1/auth/google", authHandler.GoogleLogin)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", authHandler.GoogleCallback)
 	mux.HandleFunc("GET /api/v1/client-config", func(w http.ResponseWriter, _ *http.Request) {
@@ -74,10 +76,12 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authService.Require(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("PATCH /api/v1/auth/profile", authService.Require(http.HandlerFunc(authHandler.UpdateProfile)))
+	mux.Handle("POST /api/v1/auth/email-verification/request", authService.Require(limiter.LimitBy("email-verification", 3, time.Hour, userKey, http.HandlerFunc(authHandler.RequestEmailVerification))))
+	mux.Handle("POST /api/v1/auth/phone-verification/request", authService.Require(limiter.LimitBy("phone-verification", 3, time.Hour, userKey, http.HandlerFunc(authHandler.RequestPhoneVerification))))
+	mux.Handle("POST /api/v1/auth/phone-verification/confirm", authService.Require(limiter.LimitBy("phone-verification-confirm", 10, time.Hour, userKey, http.HandlerFunc(authHandler.ConfirmPhone))))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seat-events", checkoutHandler.SeatEvents)
-	userKey := func(r *http.Request) string { user, _ := auth.UserFromContext(r.Context()); return user.ID.String() }
 	mux.Handle("POST /api/v1/screenings/{screeningID}/holds", authService.Require(limiter.LimitBy("holds", 30, time.Minute, userKey, http.HandlerFunc(checkoutHandler.CreateHold))))
 	mux.Handle("POST /api/v1/screenings/{screeningID}/holds/{holdID}/checkout", authService.Require(limiter.LimitBy("checkout", 10, time.Minute, userKey, http.HandlerFunc(checkoutHandler.Checkout))))
 	mux.Handle("GET /api/v1/orders/{orderID}", authService.Require(http.HandlerFunc(checkoutHandler.Order)))

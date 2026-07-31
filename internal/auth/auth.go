@@ -2,13 +2,16 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -28,32 +31,38 @@ const CookieName = "cinema_session"
 const oauthStateCookie = "cinema_oauth_state"
 
 var (
-	ErrInvalidCredentials = errors.New("invalid email or password")
-	ErrEmailTaken         = errors.New("email is already registered")
-	ErrInvalidResetToken  = errors.New("password reset link is invalid or expired")
-	ErrSocialUnavailable  = errors.New("social login is not configured")
+	ErrInvalidCredentials  = errors.New("invalid email or password")
+	ErrEmailTaken          = errors.New("email is already registered")
+	ErrInvalidResetToken   = errors.New("password reset link is invalid or expired")
+	ErrSocialUnavailable   = errors.New("social login is not configured")
+	ErrInvalidVerification = errors.New("verification code or link is invalid or expired")
+	ErrPhoneRequired       = errors.New("add a phone number before requesting verification")
 )
 
 type User struct {
-	ID    uuid.UUID `json:"id"`
-	Email string    `json:"email"`
-	Phone string    `json:"phone,omitempty"`
+	ID            uuid.UUID `json:"id"`
+	Email         string    `json:"email"`
+	Phone         string    `json:"phone,omitempty"`
+	EmailVerified bool      `json:"email_verified"`
+	PhoneVerified bool      `json:"phone_verified"`
 }
 
 var e164Pattern = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
 
 type Service struct {
-	db            *pgxpool.Pool
-	sessionTTL    time.Duration
-	cookieSecure  bool
-	now           func() time.Time
-	publicBaseURL string
-	oauthConfig   *oauth2.Config
-	oidcVerifier  *oidc.IDTokenVerifier
+	db                 *pgxpool.Pool
+	sessionTTL         time.Duration
+	cookieSecure       bool
+	now                func() time.Time
+	publicBaseURL      string
+	oauthConfig        *oauth2.Config
+	oidcVerifier       *oidc.IDTokenVerifier
+	verificationSecret []byte
 }
 
-func NewService(db *pgxpool.Pool, sessionTTL time.Duration, cookieSecure bool, publicBaseURL string) *Service {
-	return &Service{db: db, sessionTTL: sessionTTL, cookieSecure: cookieSecure, publicBaseURL: strings.TrimRight(publicBaseURL, "/"), now: time.Now}
+func NewService(db *pgxpool.Pool, sessionTTL time.Duration, cookieSecure bool, publicBaseURL, verificationSecret string) *Service {
+	return &Service{db: db, sessionTTL: sessionTTL, cookieSecure: cookieSecure,
+		publicBaseURL: strings.TrimRight(publicBaseURL, "/"), verificationSecret: []byte(verificationSecret), now: time.Now}
 }
 
 func (s *Service) ConfigureGoogle(ctx context.Context, clientID, clientSecret, redirectURL string) error {
@@ -116,6 +125,9 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, s
 	if err != nil {
 		return User{}, "", err
 	}
+	if err := s.queueEmailVerification(ctx, tx, user); err != nil {
+		return User{}, "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return User{}, "", err
 	}
@@ -125,8 +137,9 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, s
 func (s *Service) Login(ctx context.Context, email, password string) (User, string, error) {
 	var user User
 	passwordHash := string(dummyPasswordHash)
-	err := s.db.QueryRow(ctx, `SELECT id, email, password_hash FROM users WHERE email = $1`, normalizeEmail(email)).
-		Scan(&user.ID, &user.Email, &passwordHash)
+	err := s.db.QueryRow(ctx, `SELECT id,email,password_hash,COALESCE(phone,''),email_verified_at IS NOT NULL,
+		phone_verified_at IS NOT NULL FROM users WHERE email=$1`, normalizeEmail(email)).
+		Scan(&user.ID, &user.Email, &passwordHash, &user.Phone, &user.EmailVerified, &user.PhoneVerified)
 	passwordErr := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
 	if err != nil || passwordErr != nil {
 		return User{}, "", ErrInvalidCredentials
@@ -196,13 +209,176 @@ func (s *Service) ResetPassword(ctx context.Context, token, password string) err
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE users SET password_hash=$2 WHERE id=$1`, userID, string(passwordHash)); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE users SET password_hash=$2,email_verified_at=COALESCE(email_verified_at,now()) WHERE id=$1`, userID, string(passwordHash)); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM auth_sessions WHERE user_id=$1`, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) RequestEmailVerification(ctx context.Context, userID uuid.UUID) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var user User
+	err = tx.QueryRow(ctx, `SELECT id,email,email_verified_at IS NOT NULL FROM users WHERE id=$1`, userID).
+		Scan(&user.ID, &user.Email, &user.EmailVerified)
+	if err != nil || user.EmailVerified {
+		if err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	if err := s.queueEmailVerification(ctx, tx, user); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) queueEmailVerification(ctx context.Context, tx pgx.Tx, user User) error {
+	token, tokenHash, err := newToken()
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE verification_challenges SET consumed_at=now()
+		WHERE user_id=$1 AND channel='email' AND consumed_at IS NULL`, user.ID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO verification_challenges(user_id,channel,target,secret_hash,expires_at,max_attempts)
+		VALUES($1,'email',$2,$3,$4,1)`, user.ID, user.Email, tokenHash[:], s.now().Add(24*time.Hour)); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]string{"verify_url": s.publicBaseURL + "/?verify_email=" + token})
+	_, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,channel,recipient,template,payload)
+		VALUES($1,'email',$2,'email_verification',$3)`, user.ID, user.Email, payload)
+	return err
+}
+
+func (s *Service) ConfirmEmail(ctx context.Context, token string) error {
+	hash := sha256.Sum256([]byte(token))
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID uuid.UUID
+	var target string
+	err = tx.QueryRow(ctx, `UPDATE verification_challenges SET consumed_at=now(),attempts=attempts+1
+		WHERE channel='email' AND secret_hash=$1 AND consumed_at IS NULL AND expires_at>now()
+		AND attempts<max_attempts RETURNING user_id,target`, hash[:]).Scan(&userID, &target)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidVerification
+	}
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE users SET email_verified_at=now() WHERE id=$1 AND email=$2`, userID, target)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrInvalidVerification
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) RequestPhoneVerification(ctx context.Context, userID uuid.UUID) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var phone string
+	var verified bool
+	err = tx.QueryRow(ctx, `SELECT COALESCE(phone,''),phone_verified_at IS NOT NULL FROM users WHERE id=$1`, userID).
+		Scan(&phone, &verified)
+	if err != nil {
+		return err
+	}
+	if phone == "" {
+		return ErrPhoneRequired
+	}
+	if verified {
+		return tx.Commit(ctx)
+	}
+	code, err := verificationCode()
+	if err != nil {
+		return err
+	}
+	secretHash := s.verificationHash("sms", phone, code)
+	if _, err = tx.Exec(ctx, `UPDATE verification_challenges SET consumed_at=now()
+		WHERE user_id=$1 AND channel='sms' AND consumed_at IS NULL`, userID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO verification_challenges(user_id,channel,target,secret_hash,expires_at,max_attempts)
+		VALUES($1,'sms',$2,$3,$4,5)`, userID, phone, secretHash, s.now().Add(10*time.Minute)); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]string{"code": code})
+	if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,channel,recipient,template,payload)
+		VALUES($1,'sms',$2,'phone_verification',$3)`, userID, phone, payload); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) ConfirmPhone(ctx context.Context, userID uuid.UUID, code string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var challengeID uuid.UUID
+	var target string
+	var expected []byte
+	err = tx.QueryRow(ctx, `SELECT id,target,secret_hash FROM verification_challenges
+		WHERE user_id=$1 AND channel='sms' AND consumed_at IS NULL AND expires_at>now()
+		AND attempts<max_attempts ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, userID).
+		Scan(&challengeID, &target, &expected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidVerification
+	}
+	if err != nil {
+		return err
+	}
+	if !hmac.Equal(expected, s.verificationHash("sms", target, strings.TrimSpace(code))) {
+		if _, err := tx.Exec(ctx, `UPDATE verification_challenges SET attempts=attempts+1 WHERE id=$1`, challengeID); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return ErrInvalidVerification
+	}
+	if _, err = tx.Exec(ctx, `UPDATE verification_challenges SET consumed_at=now(),attempts=attempts+1 WHERE id=$1`, challengeID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE users SET phone_verified_at=now() WHERE id=$1 AND phone=$2`, userID, target)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrInvalidVerification
+	}
+	return tx.Commit(ctx)
+}
+
+func verificationCode() (string, error) {
+	value, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%06d", value.Int64()), nil
+}
+
+func (s *Service) verificationHash(channel, target, secret string) []byte {
+	mac := hmac.New(sha256.New, s.verificationSecret)
+	_, _ = mac.Write([]byte(channel + "\x00" + target + "\x00" + secret))
+	return mac.Sum(nil)
 }
 
 func (s *Service) GoogleLoginURL(ctx context.Context) (string, string, error) {
@@ -276,8 +452,9 @@ func (s *Service) loginSocialIdentity(ctx context.Context, provider, subject, em
 		if hashErr != nil {
 			return User{}, "", hashErr
 		}
-		err = tx.QueryRow(ctx, `INSERT INTO users(email,password_hash) VALUES($1,$2)
-			ON CONFLICT(lower(email)) DO UPDATE SET email=EXCLUDED.email RETURNING id,email`, normalizeEmail(email), string(passwordHash)).Scan(&user.ID, &user.Email)
+		err = tx.QueryRow(ctx, `INSERT INTO users(email,password_hash,email_verified_at) VALUES($1,$2,now())
+			ON CONFLICT(lower(email)) DO UPDATE SET email=EXCLUDED.email,
+			email_verified_at=COALESCE(users.email_verified_at,now()) RETURNING id,email`, normalizeEmail(email), string(passwordHash)).Scan(&user.ID, &user.Email)
 		if err == nil {
 			_, err = tx.Exec(ctx, `INSERT INTO oauth_identities(provider,subject,user_id) VALUES($1,$2,$3)`, provider, subject, user.ID)
 		}
@@ -308,9 +485,10 @@ func (s *Service) RunMaintenance(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			for name, query := range map[string]string{
-				"auth sessions": `DELETE FROM auth_sessions WHERE expires_at <= now()`,
-				"reset tokens":  `DELETE FROM password_reset_tokens WHERE expires_at <= now() OR used_at IS NOT NULL`,
-				"OAuth states":  `DELETE FROM oauth_states WHERE expires_at <= now()`,
+				"auth sessions":           `DELETE FROM auth_sessions WHERE expires_at <= now()`,
+				"reset tokens":            `DELETE FROM password_reset_tokens WHERE expires_at <= now() OR used_at IS NOT NULL`,
+				"OAuth states":            `DELETE FROM oauth_states WHERE expires_at <= now()`,
+				"verification challenges": `DELETE FROM verification_challenges WHERE expires_at<=now() OR consumed_at IS NOT NULL`,
 			} {
 				if _, err := s.db.Exec(ctx, query); err != nil {
 					log.Printf("purge expired %s: %v", name, err)
@@ -324,8 +502,10 @@ func (s *Service) Authenticate(ctx context.Context, token string) (User, error) 
 	hash := sha256.Sum256([]byte(token))
 	var user User
 	err := s.db.QueryRow(ctx,
-		`SELECT u.id, u.email, COALESCE(u.phone,'') FROM auth_sessions a JOIN users u ON u.id = a.user_id
-		 WHERE a.token_hash = $1 AND a.expires_at > now()`, hash[:]).Scan(&user.ID, &user.Email, &user.Phone)
+		`SELECT u.id,u.email,COALESCE(u.phone,''),u.email_verified_at IS NOT NULL,u.phone_verified_at IS NOT NULL
+		 FROM auth_sessions a JOIN users u ON u.id=a.user_id
+		 WHERE a.token_hash=$1 AND a.expires_at>now()`, hash[:]).
+		Scan(&user.ID, &user.Email, &user.Phone, &user.EmailVerified, &user.PhoneVerified)
 	return user, err
 }
 
@@ -341,8 +521,10 @@ func (s *Service) UpdatePhone(ctx context.Context, userID uuid.UUID, phone strin
 		return User{}, errors.New("phone must use E.164 format, for example +919876543210")
 	}
 	var user User
-	err := s.db.QueryRow(ctx, `UPDATE users SET phone=NULLIF($2,'') WHERE id=$1
-		RETURNING id,email,COALESCE(phone,'')`, userID, phone).Scan(&user.ID, &user.Email, &user.Phone)
+	err := s.db.QueryRow(ctx, `UPDATE users SET phone=NULLIF($2,''),
+		phone_verified_at=CASE WHEN phone IS NOT DISTINCT FROM NULLIF($2,'') THEN phone_verified_at ELSE NULL END
+		WHERE id=$1 RETURNING id,email,COALESCE(phone,''),email_verified_at IS NOT NULL,phone_verified_at IS NOT NULL`,
+		userID, phone).Scan(&user.ID, &user.Email, &user.Phone, &user.EmailVerified, &user.PhoneVerified)
 	return user, err
 }
 

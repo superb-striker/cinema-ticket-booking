@@ -95,6 +95,65 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJSON(w, http.StatusOK, user)
 }
 
+func (h *Handler) RequestEmailVerification(w http.ResponseWriter, r *http.Request) {
+	user, _ := UserFromContext(r.Context())
+	if err := h.service.RequestEmailVerification(r.Context(), user.ID); err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "could not send verification email")
+		return
+	}
+	utils.WriteJSON(w, http.StatusAccepted, map[string]string{"message": "If verification is required, a new link has been sent."})
+}
+
+func (h *Handler) ConfirmEmail(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token string `json:"token"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if err := h.service.ConfirmEmail(r.Context(), body.Token); err != nil {
+		if errors.Is(err, ErrInvalidVerification) {
+			utils.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		utils.WriteError(w, http.StatusInternalServerError, "could not verify email")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) RequestPhoneVerification(w http.ResponseWriter, r *http.Request) {
+	user, _ := UserFromContext(r.Context())
+	if err := h.service.RequestPhoneVerification(r.Context(), user.ID); err != nil {
+		if errors.Is(err, ErrPhoneRequired) {
+			utils.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		utils.WriteError(w, http.StatusInternalServerError, "could not send phone verification code")
+		return
+	}
+	utils.WriteJSON(w, http.StatusAccepted, map[string]string{"message": "If verification is required, a code has been sent."})
+}
+
+func (h *Handler) ConfirmPhone(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Code string `json:"code"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	user, _ := UserFromContext(r.Context())
+	if err := h.service.ConfirmPhone(r.Context(), user.ID, body.Code); err != nil {
+		if errors.Is(err, ErrInvalidVerification) {
+			utils.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		utils.WriteError(w, http.StatusInternalServerError, "could not verify phone")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`

@@ -59,6 +59,7 @@
       $("logout").classList.remove("hidden");
       $("bookings").classList.remove("hidden");
       $("phone").value = state.user.phone || "";
+      renderVerification();
       await loadBookings();
     } catch {
       state.user = null;
@@ -93,6 +94,7 @@
       $("logout").classList.remove("hidden");
       $("bookings").classList.remove("hidden");
       $("phone").value = state.user.phone || "";
+      renderVerification();
       await loadBookings();
       message("Signed in", "success");
     } catch (error) {
@@ -100,6 +102,7 @@
     }
   });
   const resetToken = new URLSearchParams(location.search).get("reset_token");
+  const emailVerificationToken = new URLSearchParams(location.search).get("verify_email");
   function openReset() {
     $("resetPanel").classList.remove("hidden");
     $("resetEmail").classList.toggle("hidden", Boolean(resetToken));
@@ -124,6 +127,14 @@
     } catch (error) { message(error.message, "error"); }
   };
   if (resetToken) openReset();
+  if (emailVerificationToken) {
+    api("/api/v1/auth/email-verification/confirm", { method: "POST", body: JSON.stringify({ token: emailVerificationToken }) })
+      .then(() => {
+        history.replaceState({}, "", "/");
+        message("Email address verified. Sign in to refresh your notification status.", "success");
+      })
+      .catch((error) => message(error.message, "error"));
+  }
   if (new URLSearchParams(location.search).has("oauth_error")) message("Google sign-in could not be completed.", "error");
   api("/api/v1/client-config").then((config) => $("googleLogin").classList.toggle("hidden", !config.google_login)).catch(() => {});
   let screeningRequest = 0;
@@ -375,7 +386,44 @@
     event.preventDefault();
     try {
       state.user = await api("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ phone: $("phone").value }) });
+      renderVerification();
       message("Notification preferences saved.", "success");
+    } catch (error) { message(error.message, "error"); }
+  };
+  function renderVerification() {
+    if (!state.user) return;
+    $("emailVerificationStatus").textContent = state.user.email_verified
+      ? `Email verified: ${state.user.email}`
+      : `Email not verified: ${state.user.email}`;
+    $("sendEmailVerification").classList.toggle("hidden", state.user.email_verified);
+    $("phoneVerificationStatus").textContent = !state.user.phone
+      ? "Add and save a phone number before requesting an SMS code."
+      : state.user.phone_verified
+        ? `Phone verified: ${state.user.phone}`
+        : `Phone not verified: ${state.user.phone}`;
+    $("sendPhoneVerification").disabled = !state.user.phone || state.user.phone_verified;
+    $("phoneCode").classList.toggle("hidden", !state.user.phone || state.user.phone_verified);
+    $("confirmPhone").classList.toggle("hidden", !state.user.phone || state.user.phone_verified);
+  }
+  $("sendEmailVerification").onclick = async () => {
+    try {
+      const result = await api("/api/v1/auth/email-verification/request", { method: "POST" });
+      message(result.message, "success");
+    } catch (error) { message(error.message, "error"); }
+  };
+  $("sendPhoneVerification").onclick = async () => {
+    try {
+      const result = await api("/api/v1/auth/phone-verification/request", { method: "POST" });
+      message(result.message, "success");
+      $("phoneCode").focus();
+    } catch (error) { message(error.message, "error"); }
+  };
+  $("confirmPhone").onclick = async () => {
+    try {
+      await api("/api/v1/auth/phone-verification/confirm", { method: "POST", body: JSON.stringify({ code: $("phoneCode").value }) });
+      state.user = await api("/api/v1/auth/me");
+      renderVerification();
+      message("Phone number verified.", "success");
     } catch (error) { message(error.message, "error"); }
   };
   function money(paise) { return (paise / 100).toFixed(2); }

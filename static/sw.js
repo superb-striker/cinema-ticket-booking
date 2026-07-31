@@ -1,7 +1,7 @@
-const VERSION = "cinema-pwa-v2";
+const VERSION = "cinema-pwa-v3";
 const SHELL = [
   "/",
-  "/app.js?v=priority1-customer-3",
+  "/app.js?v=priority1-customer-4",
   "/manifest.webmanifest",
   "/icon.svg",
   "/scanner.html",

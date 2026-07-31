@@ -24,9 +24,9 @@ The one-shot `migrate` service applies pending SQL migrations transactionally be
 - A background reconciliation worker recovers captured payments if a webhook is delayed or lost.
 - Late payments enter `refund_pending`; a leased, retrying worker issues a full refund and records the Razorpay refund ID instead of silently booking an already released seat.
 - Expired order inventory is released independently of customer traffic.
-- Customer cancellations are allowed until two hours before showtime. Inventory is released transactionally and the existing leased refund worker issues and reconciles the full Razorpay refund.
+- Each cinema owns a cancellation policy with a cutoff and refund percentage. Checkout snapshots those terms onto the order, inventory is released transactionally, and the leased refund worker issues the exact full or partial Razorpay refund without retroactively applying later policy changes.
 - Ticket QR codes contain an HMAC-signed booking identifier. The scanner endpoint verifies the signature, current booking/show status, scanner API key, and enforces one admission per order.
-- Email and optional SMS confirmations use a transactional PostgreSQL outbox with leases, bounded exponential retry, and delivery error retention.
+- Email and optional SMS confirmations use a transactional PostgreSQL outbox with leases, bounded exponential retry, and delivery error retention. Booking and refund messages are sent only to email addresses and phone numbers whose ownership has been verified.
 
 ## Customer features
 
@@ -35,6 +35,8 @@ The one-shot `migrate` service applies pending SQL migrations transactionally be
 - Itemized checkout totals containing ticket subtotal, convenience fee, GST on the fee, and final payment amount.
 - Booking history, downloadable self-contained HTML tickets with QR codes, and policy-based cancellation/refund.
 - Offline/session-expiry feedback, retry for safe reads, responsive layouts, keyboard focus indicators, and accessible seat state labels.
+- An installable PWA caches the versioned application shell and public catalog/seat reads for offline browsing while deliberately excluding authentication, booking, and payment responses.
+- A mobile staff console at `/scanner.html` supports rear-camera QR scanning and manual fallback; all admissions still require online server validation and `SCANNER_API_KEY`.
 
 Google login is enabled only when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URL` are all configured. Register the redirect URL exactly as shown in `.env.example` (replace the host in production).
 
@@ -49,6 +51,10 @@ Content-Type: application/json
 
 {"code":"<scanned QR contents>"}
 ```
+
+Cinema cancellation policies are managed in `cinema_cancellation_policies`. Changes affect new checkouts only because `orders` stores the applicable cutoff and refund percentage as immutable policy snapshots.
+
+New password accounts receive a 24-hour email verification link. Customers can request another link from booking history. Phone numbers use six-digit, ten-minute SMS codes with five-attempt limits; changing a saved phone number automatically revokes its verified status. Google email claims are accepted only after the OIDC provider reports `email_verified=true`.
 
 ## Abuse protection
 
@@ -70,7 +76,7 @@ Registration and login are limited per client IP. Holds, checkout, and payment v
 
 - Put the service behind HTTPS and keep `COOKIE_SECURE=true`.
 - Store secrets in a managed secret store and use managed PostgreSQL/Redis with private networking.
-- Add email-address and phone-number ownership verification before enabling high-risk account changes.
+- Add cinema staff identities and role-based access so scanner credentials can be rotated per device rather than shared at cinema level.
 - Add structured observability and alerts for failed refunds, reconciliation errors, and queue latency.
 - Configure automated PostgreSQL backups and restore drills.
 - Pin container images by digest in deployment manifests.

@@ -491,16 +491,20 @@ func (p *PostgresRepository) CompleteRefund(ctx context.Context, action RefundAc
 	var userID uuid.UUID
 	var email string
 	var phone *string
-	if err = tx.QueryRow(ctx, `SELECT u.id,u.email,u.phone FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, action.OrderID).
-		Scan(&userID, &email, &phone); err != nil {
+	var emailVerified, phoneVerified bool
+	if err = tx.QueryRow(ctx, `SELECT u.id,u.email,u.phone,u.email_verified_at IS NOT NULL,u.phone_verified_at IS NOT NULL
+		FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, action.OrderID).
+		Scan(&userID, &email, &phone, &emailVerified, &phoneVerified); err != nil {
 		return err
 	}
 	payload := fmt.Sprintf(`{"order_id":%q,"amount_paise":%q}`, action.OrderID.String(), fmt.Sprint(action.AmountPaise))
-	if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
-		VALUES($1,$2,'email',$3,'refund_completed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, action.OrderID, email, payload); err != nil {
-		return err
+	if emailVerified {
+		if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
+			VALUES($1,$2,'email',$3,'refund_completed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, action.OrderID, email, payload); err != nil {
+			return err
+		}
 	}
-	if phone != nil && *phone != "" {
+	if phoneVerified && phone != nil && *phone != "" {
 		if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
 			VALUES($1,$2,'sms',$3,'refund_completed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, action.OrderID, *phone, payload); err != nil {
 			return err
@@ -611,16 +615,20 @@ func (p *PostgresRepository) ConfirmPayment(ctx context.Context, event PaymentEv
 	var userID uuid.UUID
 	var email string
 	var phone *string
-	if err = tx.QueryRow(ctx, `SELECT u.id,u.email,u.phone FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, orderID).
-		Scan(&userID, &email, &phone); err != nil {
+	var emailVerified, phoneVerified bool
+	if err = tx.QueryRow(ctx, `SELECT u.id,u.email,u.phone,u.email_verified_at IS NOT NULL,u.phone_verified_at IS NOT NULL
+		FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, orderID).
+		Scan(&userID, &email, &phone, &emailVerified, &phoneVerified); err != nil {
 		return false, err
 	}
 	payload := fmt.Sprintf(`{"order_id":%q}`, orderID.String())
-	if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
-		VALUES($1,$2,'email',$3,'booking_confirmed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, orderID, email, payload); err != nil {
-		return false, err
+	if emailVerified {
+		if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
+			VALUES($1,$2,'email',$3,'booking_confirmed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, orderID, email, payload); err != nil {
+			return false, err
+		}
 	}
-	if phone != nil && *phone != "" {
+	if phoneVerified && phone != nil && *phone != "" {
 		if _, err = tx.Exec(ctx, `INSERT INTO notification_jobs(user_id,order_id,channel,recipient,template,payload)
 			VALUES($1,$2,'sms',$3,'booking_confirmed',$4::jsonb) ON CONFLICT DO NOTHING`, userID, orderID, *phone, payload); err != nil {
 			return false, err

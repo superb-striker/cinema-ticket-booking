@@ -170,7 +170,11 @@ func (w *Worker) render(item job) (string, string, error) {
 		url := strings.TrimRight(w.config.PublicBaseURL, "/") + "/#bookings"
 		return "Your cinema booking is confirmed", "Booking " + payload["order_id"] + " is confirmed. View and download your ticket: " + url, nil
 	case "refund_completed":
-		return "Your cinema booking refund is complete", "The full refund for booking " + payload["order_id"] + " has been processed. Amount: INR " + formatPaise(payload["amount_paise"]), nil
+		return "Your cinema booking refund is complete", "The refund for booking " + payload["order_id"] + " has been processed. Amount: INR " + formatPaise(payload["amount_paise"]), nil
+	case "email_verification":
+		return "Verify your Cinema Booking email", "Verify this email address within 24 hours: " + payload["verify_url"], nil
+	case "phone_verification":
+		return "Cinema Booking verification code", "Your Cinema Booking verification code is " + payload["code"] + ". It expires in 10 minutes.", nil
 	default:
 		return "", "", errors.New("unknown notification template")
 	}

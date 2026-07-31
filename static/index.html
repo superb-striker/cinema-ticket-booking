@@ -288,11 +288,24 @@
           <label class="muted">SMS confirmations <input id="phone" type="tel" autocomplete="tel" placeholder="+919876543210" /></label>
           <button type="submit">Save phone</button>
         </form>
+        <div class="booking-card" style="margin-bottom:16px">
+          <h3>Notification verification</h3>
+          <p id="emailVerificationStatus" class="muted"></p>
+          <div class="row">
+            <button id="sendEmailVerification" type="button">Send email verification</button>
+          </div>
+          <p id="phoneVerificationStatus" class="muted" style="margin-top:16px"></p>
+          <div class="row">
+            <button id="sendPhoneVerification" type="button">Send SMS code</button>
+            <input id="phoneCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" />
+            <button id="confirmPhone" type="button">Verify phone</button>
+          </div>
+        </div>
         <div id="bookingList" class="booking-list" aria-live="polite" aria-busy="false"></div>
       </section>
       <div id="message" role="status" aria-live="polite"></div>
     </main>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="/app.js?v=priority1-customer-3" defer></script>
+    <script src="/app.js?v=priority1-customer-4" defer></script>
   </body>
 </html>

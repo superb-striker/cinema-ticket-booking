@@ -23,6 +23,7 @@ type Config struct {
 	PublicBaseURL         string
 	TicketSigningSecret   string
 	ScannerAPIKey         string
+	VerificationSecret    string
 	GoogleClientID        string
 	GoogleClientSecret    string
 	GoogleRedirectURL     string
@@ -52,6 +53,7 @@ func Load() (Config, error) {
 		PublicBaseURL:         env("PUBLIC_BASE_URL", "http://localhost:8080"),
 		TicketSigningSecret:   os.Getenv("TICKET_SIGNING_SECRET"),
 		ScannerAPIKey:         os.Getenv("SCANNER_API_KEY"),
+		VerificationSecret:    os.Getenv("VERIFICATION_SECRET"),
 		GoogleClientID:        os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:    os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:     os.Getenv("GOOGLE_REDIRECT_URL"),
@@ -69,8 +71,8 @@ func Load() (Config, error) {
 	if c.RazorpayKeyID == "" || c.RazorpayKeySecret == "" || c.RazorpayWebhookSecret == "" {
 		return Config{}, fmt.Errorf("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET are required")
 	}
-	if len(c.TicketSigningSecret) < 32 || len(c.ScannerAPIKey) < 24 {
-		return Config{}, fmt.Errorf("TICKET_SIGNING_SECRET (32+ characters) and SCANNER_API_KEY (24+ characters) are required")
+	if len(c.TicketSigningSecret) < 32 || len(c.ScannerAPIKey) < 24 || len(c.VerificationSecret) < 32 {
+		return Config{}, fmt.Errorf("TICKET_SIGNING_SECRET and VERIFICATION_SECRET (32+ characters) and SCANNER_API_KEY (24+ characters) are required")
 	}
 	googleValues := 0
 	for _, value := range []string{c.GoogleClientID, c.GoogleClientSecret, c.GoogleRedirectURL} {
