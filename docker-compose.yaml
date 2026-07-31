@@ -61,6 +61,7 @@ services:
       TICKET_SIGNING_SECRET: ${TICKET_SIGNING_SECRET:-local-ticket-signing-secret-change-in-production}
       SCANNER_API_KEY: ${SCANNER_API_KEY:-local-scanner-api-key-change-me}
       VERIFICATION_SECRET: ${VERIFICATION_SECRET:-local-verification-secret-change-in-production}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       NOTIFICATION_LOG_ONLY: ${NOTIFICATION_LOG_ONLY:-true}
       SMTP_ADDR: ${SMTP_ADDR:-}
       SMTP_USERNAME: ${SMTP_USERNAME:-}

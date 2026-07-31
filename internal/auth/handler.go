@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/superb-striker/cinema/internal/utils"
 )
 
@@ -219,6 +221,53 @@ func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	h.service.SetCookie(w, token)
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (h *Handler) AdminUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.service.AdminUsers(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "could not list users")
+		return
+	}
+	if users == nil {
+		users = []User{}
+	}
+	utils.WriteJSON(w, http.StatusOK, users)
+}
+
+func (h *Handler) GrantRole(w http.ResponseWriter, r *http.Request) {
+	h.changeRole(w, r, true)
+}
+
+func (h *Handler) RevokeRole(w http.ResponseWriter, r *http.Request) {
+	h.changeRole(w, r, false)
+}
+
+func (h *Handler) changeRole(w http.ResponseWriter, r *http.Request, grant bool) {
+	userID, err := uuid.Parse(r.PathValue("userID"))
+	if err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid userID")
+		return
+	}
+	role := strings.TrimSpace(r.PathValue("role"))
+	actor, _ := UserFromContext(r.Context())
+	if grant {
+		err = h.service.GrantRole(r.Context(), actor.ID, userID, role)
+	} else {
+		err = h.service.RevokeRole(r.Context(), actor.ID, userID, role)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidRole):
+			utils.WriteError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, ErrLastAdmin):
+			utils.WriteError(w, http.StatusConflict, err.Error())
+		default:
+			utils.WriteError(w, http.StatusInternalServerError, "could not update role")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {

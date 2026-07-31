@@ -42,6 +42,9 @@ func main() {
 	if err := authService.ConfigureGoogle(ctx, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL); err != nil {
 		log.Fatal(err)
 	}
+	if err := authService.ConfigureAdminRoles(ctx, cfg.AdminEmails); err != nil {
+		log.Fatal(err)
+	}
 	authHandler := auth.NewHandler(authService)
 	go authService.RunMaintenance(ctx, time.Hour)
 	repo := checkout.NewPostgresRepository(db)
@@ -79,6 +82,9 @@ func main() {
 	mux.Handle("POST /api/v1/auth/email-verification/request", authService.Require(limiter.LimitBy("email-verification", 3, time.Hour, userKey, http.HandlerFunc(authHandler.RequestEmailVerification))))
 	mux.Handle("POST /api/v1/auth/phone-verification/request", authService.Require(limiter.LimitBy("phone-verification", 3, time.Hour, userKey, http.HandlerFunc(authHandler.RequestPhoneVerification))))
 	mux.Handle("POST /api/v1/auth/phone-verification/confirm", authService.Require(limiter.LimitBy("phone-verification-confirm", 10, time.Hour, userKey, http.HandlerFunc(authHandler.ConfirmPhone))))
+	mux.Handle("GET /api/v1/admin/users", authService.RequireRole(http.HandlerFunc(authHandler.AdminUsers), "admin"))
+	mux.Handle("PUT /api/v1/admin/users/{userID}/roles/{role}", authService.RequireRole(http.HandlerFunc(authHandler.GrantRole), "admin"))
+	mux.Handle("DELETE /api/v1/admin/users/{userID}/roles/{role}", authService.RequireRole(http.HandlerFunc(authHandler.RevokeRole), "admin"))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seat-events", checkoutHandler.SeatEvents)

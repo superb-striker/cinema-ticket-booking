@@ -24,6 +24,7 @@ type Config struct {
 	TicketSigningSecret   string
 	ScannerAPIKey         string
 	VerificationSecret    string
+	AdminEmails           string
 	GoogleClientID        string
 	GoogleClientSecret    string
 	GoogleRedirectURL     string
@@ -54,6 +55,7 @@ func Load() (Config, error) {
 		TicketSigningSecret:   os.Getenv("TICKET_SIGNING_SECRET"),
 		ScannerAPIKey:         os.Getenv("SCANNER_API_KEY"),
 		VerificationSecret:    os.Getenv("VERIFICATION_SECRET"),
+		AdminEmails:           os.Getenv("ADMIN_EMAILS"),
 		GoogleClientID:        os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:    os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:     os.Getenv("GOOGLE_REDIRECT_URL"),

@@ -37,6 +37,8 @@ var (
 	ErrSocialUnavailable   = errors.New("social login is not configured")
 	ErrInvalidVerification = errors.New("verification code or link is invalid or expired")
 	ErrPhoneRequired       = errors.New("add a phone number before requesting verification")
+	ErrInvalidRole         = errors.New("invalid role")
+	ErrLastAdmin           = errors.New("cannot remove the last administrator")
 )
 
 type User struct {
@@ -45,6 +47,7 @@ type User struct {
 	Phone         string    `json:"phone,omitempty"`
 	EmailVerified bool      `json:"email_verified"`
 	PhoneVerified bool      `json:"phone_verified"`
+	Roles         []string  `json:"roles"`
 }
 
 var e164Pattern = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
@@ -58,11 +61,45 @@ type Service struct {
 	oauthConfig        *oauth2.Config
 	oidcVerifier       *oidc.IDTokenVerifier
 	verificationSecret []byte
+	bootstrapAdmins    map[string]struct{}
 }
 
 func NewService(db *pgxpool.Pool, sessionTTL time.Duration, cookieSecure bool, publicBaseURL, verificationSecret string) *Service {
 	return &Service{db: db, sessionTTL: sessionTTL, cookieSecure: cookieSecure,
-		publicBaseURL: strings.TrimRight(publicBaseURL, "/"), verificationSecret: []byte(verificationSecret), now: time.Now}
+		publicBaseURL: strings.TrimRight(publicBaseURL, "/"), verificationSecret: []byte(verificationSecret),
+		bootstrapAdmins: map[string]struct{}{}, now: time.Now}
+}
+
+func (s *Service) ConfigureAdminRoles(ctx context.Context, value string) error {
+	for _, raw := range strings.Split(value, ",") {
+		email := normalizeEmail(raw)
+		if email == "" {
+			continue
+		}
+		address, err := mail.ParseAddress(email)
+		if err != nil || address.Address != email {
+			return fmt.Errorf("invalid ADMIN_EMAILS entry %q", raw)
+		}
+		s.bootstrapAdmins[email] = struct{}{}
+	}
+	if len(s.bootstrapAdmins) == 0 {
+		return nil
+	}
+	emails := make([]string, 0, len(s.bootstrapAdmins))
+	for email := range s.bootstrapAdmins {
+		emails = append(emails, email)
+	}
+	_, err := s.db.Exec(ctx, `INSERT INTO user_roles(user_id,role)
+		SELECT id,'admin' FROM users WHERE email=ANY($1) ON CONFLICT DO NOTHING`, emails)
+	return err
+}
+
+func (s *Service) grantBootstrapAdmin(ctx context.Context, tx pgx.Tx, user User) error {
+	if _, ok := s.bootstrapAdmins[user.Email]; !ok {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO user_roles(user_id,role) VALUES($1,'admin') ON CONFLICT DO NOTHING`, user.ID)
+	return err
 }
 
 func (s *Service) ConfigureGoogle(ctx context.Context, clientID, clientSecret, redirectURL string) error {
@@ -128,6 +165,9 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, s
 	if err := s.queueEmailVerification(ctx, tx, user); err != nil {
 		return User{}, "", err
 	}
+	if err := s.grantBootstrapAdmin(ctx, tx, user); err != nil {
+		return User{}, "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return User{}, "", err
 	}
@@ -137,9 +177,10 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, s
 func (s *Service) Login(ctx context.Context, email, password string) (User, string, error) {
 	var user User
 	passwordHash := string(dummyPasswordHash)
-	err := s.db.QueryRow(ctx, `SELECT id,email,password_hash,COALESCE(phone,''),email_verified_at IS NOT NULL,
-		phone_verified_at IS NOT NULL FROM users WHERE email=$1`, normalizeEmail(email)).
-		Scan(&user.ID, &user.Email, &passwordHash, &user.Phone, &user.EmailVerified, &user.PhoneVerified)
+	err := s.db.QueryRow(ctx, `SELECT u.id,u.email,u.password_hash,COALESCE(u.phone,''),u.email_verified_at IS NOT NULL,
+		u.phone_verified_at IS NOT NULL,COALESCE(array_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL),'{}')
+		FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id WHERE u.email=$1 GROUP BY u.id`, normalizeEmail(email)).
+		Scan(&user.ID, &user.Email, &passwordHash, &user.Phone, &user.EmailVerified, &user.PhoneVerified, &user.Roles)
 	passwordErr := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
 	if err != nil || passwordErr != nil {
 		return User{}, "", ErrInvalidCredentials
@@ -470,6 +511,9 @@ func (s *Service) loginSocialIdentity(ctx context.Context, provider, subject, em
 		tokenHash[:], user.ID, s.now().Add(s.sessionTTL)); err != nil {
 		return User{}, "", err
 	}
+	if err = s.grantBootstrapAdmin(ctx, tx, user); err != nil {
+		return User{}, "", err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return User{}, "", err
 	}
@@ -502,10 +546,11 @@ func (s *Service) Authenticate(ctx context.Context, token string) (User, error) 
 	hash := sha256.Sum256([]byte(token))
 	var user User
 	err := s.db.QueryRow(ctx,
-		`SELECT u.id,u.email,COALESCE(u.phone,''),u.email_verified_at IS NOT NULL,u.phone_verified_at IS NOT NULL
-		 FROM auth_sessions a JOIN users u ON u.id=a.user_id
-		 WHERE a.token_hash=$1 AND a.expires_at>now()`, hash[:]).
-		Scan(&user.ID, &user.Email, &user.Phone, &user.EmailVerified, &user.PhoneVerified)
+		`SELECT u.id,u.email,COALESCE(u.phone,''),u.email_verified_at IS NOT NULL,u.phone_verified_at IS NOT NULL,
+		 COALESCE(array_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL),'{}')
+		 FROM auth_sessions a JOIN users u ON u.id=a.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id
+		 WHERE a.token_hash=$1 AND a.expires_at>now() GROUP BY u.id`, hash[:]).
+		Scan(&user.ID, &user.Email, &user.Phone, &user.EmailVerified, &user.PhoneVerified, &user.Roles)
 	return user, err
 }
 
@@ -575,6 +620,17 @@ func UserFromContext(ctx context.Context) (User, bool) {
 	return u, ok
 }
 
+func (u User) HasRole(roles ...string) bool {
+	for _, assigned := range u.Roles {
+		for _, required := range roles {
+			if assigned == required {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *Service) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(CookieName)
@@ -589,6 +645,90 @@ func (s *Service) Require(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, user)))
 	})
+}
+
+func (s *Service) RequireRole(next http.Handler, roles ...string) http.Handler {
+	return s.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, _ := UserFromContext(r.Context())
+		if !user.HasRole(roles...) {
+			utils.WriteError(w, http.StatusForbidden, "insufficient permissions")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+func (s *Service) AdminUsers(ctx context.Context, query string) ([]User, error) {
+	rows, err := s.db.Query(ctx, `SELECT u.id,u.email,COALESCE(u.phone,''),u.email_verified_at IS NOT NULL,
+		u.phone_verified_at IS NOT NULL,COALESCE(array_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL),'{}')
+		FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id
+		WHERE $1='' OR u.email ILIKE '%'||$1||'%' GROUP BY u.id ORDER BY u.created_at DESC LIMIT 100`, strings.TrimSpace(query))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var user User
+		if err := rows.Scan(&user.ID, &user.Email, &user.Phone, &user.EmailVerified, &user.PhoneVerified, &user.Roles); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (s *Service) GrantRole(ctx context.Context, actorID, userID uuid.UUID, role string) error {
+	if role != "admin" && role != "support" {
+		return ErrInvalidRole
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO user_roles(user_id,role,granted_by) VALUES($1,$2,$3)
+		ON CONFLICT DO NOTHING`, userID, role, actorID); err != nil {
+		return err
+	}
+	details, _ := json.Marshal(map[string]string{"role": role})
+	if _, err = tx.Exec(ctx, `INSERT INTO admin_audit_log(actor_user_id,action,entity_type,entity_id,details)
+		VALUES($1,'role.granted','user',$2,$3)`, actorID, userID.String(), details); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) RevokeRole(ctx context.Context, actorID, userID uuid.UUID, role string) error {
+	if role != "admin" && role != "support" {
+		return ErrInvalidRole
+	}
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if role == "admin" {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('admin-role-change'))`); err != nil {
+			return err
+		}
+		var count int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM user_roles WHERE role='admin'`).Scan(&count); err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM user_roles WHERE user_id=$1 AND role=$2`, userID, role); err != nil {
+		return err
+	}
+	details, _ := json.Marshal(map[string]string{"role": role})
+	if _, err = tx.Exec(ctx, `INSERT INTO admin_audit_log(actor_user_id,action,entity_type,entity_id,details)
+		VALUES($1,'role.revoked','user',$2,$3)`, actorID, userID.String(), details); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func TokenFromRequest(r *http.Request) string {
