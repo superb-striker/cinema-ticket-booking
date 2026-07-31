@@ -1,9 +1,11 @@
-const VERSION = "cinema-pwa-v1";
+const VERSION = "cinema-pwa-v2";
 const SHELL = [
   "/",
   "/app.js?v=priority1-customer-3",
   "/manifest.webmanifest",
   "/icon.svg",
+  "/scanner.html",
+  "/scanner.js?v=1",
 ];
 
 self.addEventListener("install", (event) => {
