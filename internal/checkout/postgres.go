@@ -78,7 +78,8 @@ func (p *PostgresRepository) Seats(ctx context.Context, screeningID uuid.UUID) (
 		return nil, err
 	}
 	rows, err := p.db.Query(ctx, `SELECT st.id, st.row_label, st.seat_number, st.category, st.accessible,
-		CASE WHEN os.status='confirmed' THEN 'confirmed'
+		CASE WHEN sb.id IS NOT NULL THEN 'blocked'
+		     WHEN os.status='confirmed' THEN 'confirmed'
 		     WHEN os.status='payment_pending' THEN 'payment_pending' 
 		     ELSE 'available' 
 		END
@@ -86,6 +87,9 @@ func (p *PostgresRepository) Seats(ctx context.Context, screeningID uuid.UUID) (
 		LEFT JOIN order_seats os ON os.screening_id=sc.id
 		AND os.seat_id=st.id
 		AND os.status IN ('payment_pending','confirmed')
+		LEFT JOIN seat_blocks sb ON sb.screen_id=sc.screen_id AND sb.seat_id=st.id
+		AND (sb.screening_id IS NULL OR sb.screening_id=sc.id)
+		AND sb.released_at IS NULL AND (sb.expires_at IS NULL OR sb.expires_at>now())
 		WHERE sc.id=$1 
 		ORDER BY st.row_label, st.seat_number`,
 		screeningID)
@@ -202,6 +206,18 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 	rows.Close()
 	if len(seatPrices) != len(hold.SeatIDs) {
 		return Order{}, false, ErrInvalidSeat
+	}
+	var blocked bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM screenings sc JOIN seat_blocks sb ON sb.screen_id=sc.screen_id
+		WHERE sc.id=$1 AND sb.seat_id=ANY($2)
+		  AND (sb.screening_id IS NULL OR sb.screening_id=sc.id)
+		  AND sb.released_at IS NULL AND (sb.expires_at IS NULL OR sb.expires_at>now()))`,
+		hold.ScreeningID, hold.SeatIDs).Scan(&blocked); err != nil {
+		return Order{}, false, err
+	}
+	if blocked {
+		return Order{}, false, ErrSeatsUnavailable
 	}
 	convenienceFee := (subtotal*300 + 9999) / 10000
 	tax := (convenienceFee*1800 + 9999) / 10000
