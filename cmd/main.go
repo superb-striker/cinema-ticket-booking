@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/superb-striker/cinema/internal/adapters/redis"
+	"github.com/superb-striker/cinema/internal/admin"
 	"github.com/superb-striker/cinema/internal/auth"
 	"github.com/superb-striker/cinema/internal/checkout"
 	"github.com/superb-striker/cinema/internal/config"
@@ -46,6 +47,7 @@ func main() {
 		log.Fatal(err)
 	}
 	authHandler := auth.NewHandler(authService)
+	adminCatalog := admin.NewCatalogHandler(db)
 	go authService.RunMaintenance(ctx, time.Hour)
 	repo := checkout.NewPostgresRepository(db)
 	holds := checkout.NewRedisHoldStore(rdb)
@@ -85,6 +87,31 @@ func main() {
 	mux.Handle("GET /api/v1/admin/users", authService.RequireRole(http.HandlerFunc(authHandler.AdminUsers), "admin"))
 	mux.Handle("PUT /api/v1/admin/users/{userID}/roles/{role}", authService.RequireRole(http.HandlerFunc(authHandler.GrantRole), "admin"))
 	mux.Handle("DELETE /api/v1/admin/users/{userID}/roles/{role}", authService.RequireRole(http.HandlerFunc(authHandler.RevokeRole), "admin"))
+	adminOnly := func(handler http.HandlerFunc) http.Handler {
+		return authService.RequireRole(handler, "admin")
+	}
+	mux.Handle("GET /api/v1/admin/movies", adminOnly(adminCatalog.Movies))
+	mux.Handle("POST /api/v1/admin/movies", adminOnly(adminCatalog.Movies))
+	mux.Handle("PUT /api/v1/admin/movies/{movieID}", adminOnly(adminCatalog.Movie))
+	mux.Handle("DELETE /api/v1/admin/movies/{movieID}", adminOnly(adminCatalog.Movie))
+	mux.Handle("GET /api/v1/admin/cinemas", adminOnly(adminCatalog.Cinemas))
+	mux.Handle("POST /api/v1/admin/cinemas", adminOnly(adminCatalog.Cinemas))
+	mux.Handle("PUT /api/v1/admin/cinemas/{cinemaID}", adminOnly(adminCatalog.Cinema))
+	mux.Handle("DELETE /api/v1/admin/cinemas/{cinemaID}", adminOnly(adminCatalog.Cinema))
+	mux.Handle("GET /api/v1/admin/auditoriums", adminOnly(adminCatalog.Auditoriums))
+	mux.Handle("POST /api/v1/admin/auditoriums", adminOnly(adminCatalog.Auditoriums))
+	mux.Handle("PUT /api/v1/admin/auditoriums/{auditoriumID}", adminOnly(adminCatalog.Auditorium))
+	mux.Handle("DELETE /api/v1/admin/auditoriums/{auditoriumID}", adminOnly(adminCatalog.Auditorium))
+	mux.Handle("GET /api/v1/admin/auditoriums/{auditoriumID}/layout", adminOnly(adminCatalog.Layout))
+	mux.Handle("PUT /api/v1/admin/auditoriums/{auditoriumID}/layout", adminOnly(adminCatalog.Layout))
+	mux.Handle("GET /api/v1/admin/pricing-tiers", adminOnly(adminCatalog.PricingTiers))
+	mux.Handle("POST /api/v1/admin/pricing-tiers", adminOnly(adminCatalog.PricingTiers))
+	mux.Handle("PUT /api/v1/admin/pricing-tiers/{tierID}", adminOnly(adminCatalog.PricingTier))
+	mux.Handle("DELETE /api/v1/admin/pricing-tiers/{tierID}", adminOnly(adminCatalog.PricingTier))
+	mux.Handle("GET /api/v1/admin/shows", adminOnly(adminCatalog.Shows))
+	mux.Handle("POST /api/v1/admin/shows", adminOnly(adminCatalog.Shows))
+	mux.Handle("PUT /api/v1/admin/shows/{showID}", adminOnly(adminCatalog.Show))
+	mux.Handle("DELETE /api/v1/admin/shows/{showID}", adminOnly(adminCatalog.Show))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seat-events", checkoutHandler.SeatEvents)

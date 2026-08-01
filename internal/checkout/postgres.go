@@ -27,6 +27,7 @@ func (p *PostgresRepository) ListScreenings(ctx context.Context, filter Screenin
 		FROM screenings sc JOIN movies m ON m.id=sc.movie_id JOIN screens s ON s.id=sc.screen_id
 		JOIN cinemas c ON c.id=s.cinema_id
 		WHERE sc.status='scheduled' AND sc.sales_end_at > now()
+		  AND m.active AND s.active AND c.active
 		  AND ($1::text='' OR m.title ILIKE '%' || $1 || '%')
 		  AND ($2::uuid='00000000-0000-0000-0000-000000000000' OR c.id=$2)
 		  AND ($3::text='' OR lower(c.city)=lower($3))
@@ -67,7 +68,8 @@ func (p *PostgresRepository) Screening(ctx context.Context, id uuid.UUID) (Scree
 		sc.starts_at, sc.sales_end_at, sc.base_price_paise, sc.currency
 		FROM screenings sc JOIN movies m ON m.id=sc.movie_id JOIN screens s ON s.id=sc.screen_id
 		JOIN cinemas c ON c.id=s.cinema_id
-		WHERE sc.id=$1 AND sc.status='scheduled' AND sc.sales_end_at > now()`, id,
+		WHERE sc.id=$1 AND sc.status='scheduled' AND sc.sales_end_at > now()
+		  AND m.active AND s.active AND c.active`, id,
 	))
 }
 
@@ -155,15 +157,14 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 		return Order{}, false, err
 	}
 
-	var price int64
 	var cancellationCutoff, cancellationRefundPercent int
 	var currency string
-	err = tx.QueryRow(ctx, `SELECT sc.base_price_paise,sc.currency,
+	err = tx.QueryRow(ctx, `SELECT sc.currency,
 		COALESCE(cp.cutoff_minutes,120),COALESCE(cp.refund_percent,100)
 		FROM screenings sc JOIN screens s ON s.id=sc.screen_id
 		LEFT JOIN cinema_cancellation_policies cp ON cp.cinema_id=s.cinema_id
 		WHERE sc.id=$1 AND sc.status='scheduled' AND sc.sales_end_at>now() FOR UPDATE OF sc`, hold.ScreeningID).
-		Scan(&price, &currency, &cancellationCutoff, &cancellationRefundPercent)
+		Scan(&currency, &cancellationCutoff, &cancellationRefundPercent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, ErrScreeningClosed
 	}
@@ -171,7 +172,37 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 		return Order{}, false, err
 	}
 
-	subtotal := price * int64(len(hold.SeatIDs))
+	rows, err := tx.Query(ctx, `SELECT st.id,COALESCE(sp.price_paise,sc.base_price_paise)
+		FROM screenings sc
+		JOIN screens s ON s.id=sc.screen_id
+		JOIN seats st ON st.screen_id=sc.screen_id
+		LEFT JOIN pricing_tiers pt ON pt.cinema_id=s.cinema_id
+			AND pt.seat_category=st.category AND pt.active
+		LEFT JOIN screening_prices sp ON sp.screening_id=sc.id AND sp.pricing_tier_id=pt.id
+		WHERE sc.id=$1 AND st.id=ANY($2)`, hold.ScreeningID, hold.SeatIDs)
+	if err != nil {
+		return Order{}, false, err
+	}
+	seatPrices := make(map[string]int64, len(hold.SeatIDs))
+	var subtotal int64
+	for rows.Next() {
+		var seatID string
+		var seatPrice int64
+		if err := rows.Scan(&seatID, &seatPrice); err != nil {
+			rows.Close()
+			return Order{}, false, err
+		}
+		seatPrices[seatID] = seatPrice
+		subtotal += seatPrice
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Order{}, false, err
+	}
+	rows.Close()
+	if len(seatPrices) != len(hold.SeatIDs) {
+		return Order{}, false, ErrInvalidSeat
+	}
 	convenienceFee := (subtotal*300 + 9999) / 10000
 	tax := (convenienceFee*1800 + 9999) / 10000
 	order := Order{
@@ -193,7 +224,7 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 	}
 	for _, seatID := range hold.SeatIDs {
 		_, err = tx.Exec(ctx, `INSERT INTO order_seats(order_id,screening_id,seat_id,status,price_paise)
-			VALUES($1,$2,$3,'payment_pending',$4)`, order.ID, order.ScreeningID, seatID, price)
+			VALUES($1,$2,$3,'payment_pending',$4)`, order.ID, order.ScreeningID, seatID, seatPrices[seatID])
 		if err != nil {
 			return Order{}, false, mapInventoryError(err)
 		}
