@@ -269,7 +269,11 @@
       });
       const result = await api(
         `/api/v1/screenings/${state.screening.id}/holds/${hold.id}/checkout`,
-        { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } },
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify({ coupon_code: $("couponCode").value.trim() }),
+        },
       );
       openPayment(result);
     } catch (error) {

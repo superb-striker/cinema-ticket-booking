@@ -18,6 +18,7 @@ var (
 	ErrNotCancellable   = errors.New("booking is no longer eligible for cancellation")
 	ErrTicketInvalid    = errors.New("ticket is invalid")
 	ErrTicketUsed       = errors.New("ticket has already been admitted")
+	ErrInvalidPromotion = errors.New("promotion code is invalid or unavailable")
 )
 
 type Screening struct {
@@ -60,6 +61,7 @@ type Hold struct {
 	UserID      uuid.UUID `json:"user_id"`
 	SeatIDs     []string  `json:"seat_ids"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	CouponCode  string    `json:"-"`
 }
 
 type Order struct {
@@ -73,6 +75,8 @@ type Order struct {
 	SubtotalPaise                 int64     `json:"subtotal_paise"`
 	ConvenienceFeePaise           int64     `json:"convenience_fee_paise"`
 	TaxPaise                      int64     `json:"tax_paise"`
+	DiscountPaise                 int64     `json:"discount_paise"`
+	PromotionCode                 string    `json:"promotion_code,omitempty"`
 	CancellationCutoffMinutes     int       `json:"cancellation_cutoff_minutes"`
 	CancellationRefundPercent     int       `json:"cancellation_refund_percent"`
 	CancellationRefundAmountPaise int64     `json:"cancellation_refund_amount_paise,omitempty"`

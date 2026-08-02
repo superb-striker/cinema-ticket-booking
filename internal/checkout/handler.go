@@ -306,7 +306,13 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := auth.UserFromContext(r.Context())
-	order, err := h.service.Checkout(r.Context(), screeningID, holdID, user.ID, r.Header.Get("Idempotency-Key"))
+	var body struct {
+		CouponCode string `json:"coupon_code"`
+	}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &body) {
+		return
+	}
+	order, err := h.service.Checkout(r.Context(), screeningID, holdID, user.ID, r.Header.Get("Idempotency-Key"), body.CouponCode)
 	if err != nil {
 		writeDomainError(w, err)
 		return
@@ -403,6 +409,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		utils.WriteError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrSeatsUnavailable), errors.Is(err, ErrIdempotencyReuse):
 		utils.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrInvalidPromotion):
+		utils.WriteError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, ErrNotCancellable), errors.Is(err, ErrTicketUsed):
 		utils.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrTicketInvalid):

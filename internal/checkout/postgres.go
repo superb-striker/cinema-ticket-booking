@@ -141,17 +141,17 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 
 	var existing Order
 	err = tx.QueryRow(ctx, `SELECT id, screening_id, user_id, hold_id, status, amount_paise, currency,
-		subtotal_paise, convenience_fee_paise, tax_paise,
+		subtotal_paise, convenience_fee_paise, tax_paise,discount_paise,COALESCE(promotion_code,''),
 		cancellation_cutoff_minutes,cancellation_refund_percent,COALESCE(cancellation_refund_amount_paise,0),
 		provider, COALESCE(provider_order_id,''), COALESCE(provider_payment_id,''), expires_at
 		FROM orders WHERE user_id=$1 AND idempotency_key=$2`, hold.UserID, idempotencyKey).
 		Scan(&existing.ID, &existing.ScreeningID, &existing.UserID, &existing.HoldID, &existing.Status,
 			&existing.AmountPaise, &existing.Currency, &existing.SubtotalPaise, &existing.ConvenienceFeePaise,
-			&existing.TaxPaise, &existing.CancellationCutoffMinutes, &existing.CancellationRefundPercent,
+			&existing.TaxPaise, &existing.DiscountPaise, &existing.PromotionCode, &existing.CancellationCutoffMinutes, &existing.CancellationRefundPercent,
 			&existing.CancellationRefundAmountPaise, &existing.Provider, &existing.ProviderOrderID,
 			&existing.ProviderPaymentID, &existing.ExpiresAt)
 	if err == nil {
-		if existing.HoldID != hold.ID {
+		if existing.HoldID != hold.ID || existing.PromotionCode != hold.CouponCode {
 			return Order{}, false, ErrIdempotencyReuse
 		}
 		existing.SeatIDs, err = orderSeats(ctx, tx, existing.ID)
@@ -219,24 +219,81 @@ func (p *PostgresRepository) CreateOrder(ctx context.Context, hold Hold, idempot
 	if blocked {
 		return Order{}, false, ErrSeatsUnavailable
 	}
-	convenienceFee := (subtotal*300 + 9999) / 10000
+	var promotionID *uuid.UUID
+	var promotionCode *string
+	var discount int64
+	if hold.CouponCode != "" {
+		var id uuid.UUID
+		var code, discountType string
+		var discountValue, minimum int64
+		var maximum *int64
+		var maximumRedemptions *int
+		var perCustomer int
+		err = tx.QueryRow(ctx, `SELECT p.id,p.code,p.discount_type,p.discount_value,
+			p.minimum_subtotal_paise,p.maximum_discount_paise,p.maximum_redemptions,p.per_customer_limit
+			FROM promotions p JOIN screenings sc ON sc.id=$2 JOIN screens s ON s.id=sc.screen_id
+			WHERE p.code=$1 AND p.active AND now()>=p.starts_at AND now()<p.ends_at
+			  AND (p.cinema_id IS NULL OR p.cinema_id=s.cinema_id) FOR UPDATE OF p`,
+			hold.CouponCode, hold.ScreeningID).Scan(&id, &code, &discountType, &discountValue,
+			&minimum, &maximum, &maximumRedemptions, &perCustomer)
+		if errors.Is(err, pgx.ErrNoRows) || subtotal < minimum {
+			return Order{}, false, ErrInvalidPromotion
+		}
+		if err != nil {
+			return Order{}, false, err
+		}
+		var totalUses, customerUses int
+		if err = tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE cr.user_id=$2)
+			FROM coupon_redemptions cr JOIN orders o ON o.id=cr.order_id
+			WHERE cr.promotion_id=$1 AND o.status IN ('payment_pending','confirmed','refund_pending')`,
+			id, hold.UserID).Scan(&totalUses, &customerUses); err != nil {
+			return Order{}, false, err
+		}
+		if (maximumRedemptions != nil && totalUses >= *maximumRedemptions) || customerUses >= perCustomer {
+			return Order{}, false, ErrInvalidPromotion
+		}
+		if discountType == "percentage" {
+			discount = subtotal * discountValue / 100
+		} else {
+			discount = discountValue
+		}
+		if maximum != nil && discount > *maximum {
+			discount = *maximum
+		}
+		if discount >= subtotal {
+			discount = subtotal - 1
+		}
+		promotionID, promotionCode = &id, &code
+	}
+	convenienceFee := ((subtotal-discount)*300 + 9999) / 10000
 	tax := (convenienceFee*1800 + 9999) / 10000
 	order := Order{
 		ID: uuid.New(), UserID: hold.UserID, ScreeningID: hold.ScreeningID, HoldID: hold.ID,
 		SeatIDs: hold.SeatIDs, Status: "payment_pending", SubtotalPaise: subtotal,
-		ConvenienceFeePaise: convenienceFee, TaxPaise: tax, AmountPaise: subtotal + convenienceFee + tax,
+		ConvenienceFeePaise: convenienceFee, TaxPaise: tax, DiscountPaise: discount,
+		AmountPaise:               subtotal + convenienceFee + tax - discount,
 		CancellationCutoffMinutes: cancellationCutoff, CancellationRefundPercent: cancellationRefundPercent,
 		Currency: currency, Provider: "razorpay", ExpiresAt: hold.ExpiresAt,
 	}
+	if promotionCode != nil {
+		order.PromotionCode = *promotionCode
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO orders
 		(id,user_id,screening_id,hold_id,idempotency_key,status,amount_paise,currency,provider,expires_at,
-		 subtotal_paise,convenience_fee_paise,tax_paise,cancellation_cutoff_minutes,cancellation_refund_percent)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, order.ID, order.UserID, order.ScreeningID,
+		 subtotal_paise,convenience_fee_paise,tax_paise,cancellation_cutoff_minutes,cancellation_refund_percent,
+		 promotion_id,promotion_code,discount_paise)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, order.ID, order.UserID, order.ScreeningID,
 		order.HoldID, idempotencyKey, order.Status, order.AmountPaise, order.Currency, order.Provider, order.ExpiresAt,
 		order.SubtotalPaise, order.ConvenienceFeePaise, order.TaxPaise, order.CancellationCutoffMinutes,
-		order.CancellationRefundPercent)
+		order.CancellationRefundPercent, promotionID, promotionCode, discount)
 	if err != nil {
 		return Order{}, false, mapInventoryError(err)
+	}
+	if promotionID != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO coupon_redemptions(promotion_id,order_id,user_id,discount_paise)
+			VALUES($1,$2,$3,$4)`, *promotionID, order.ID, order.UserID, discount); err != nil {
+			return Order{}, false, err
+		}
 	}
 	for _, seatID := range hold.SeatIDs {
 		_, err = tx.Exec(ctx, `INSERT INTO order_seats(order_id,screening_id,seat_id,status,price_paise)
@@ -302,12 +359,12 @@ func (p *PostgresRepository) FailOrder(ctx context.Context, orderID uuid.UUID) e
 func (p *PostgresRepository) Order(ctx context.Context, orderID, userID uuid.UUID) (Order, error) {
 	var order Order
 	err := p.db.QueryRow(ctx, `SELECT id,screening_id,user_id,hold_id,status,amount_paise,currency,
-		subtotal_paise,convenience_fee_paise,tax_paise,cancellation_cutoff_minutes,
+		subtotal_paise,convenience_fee_paise,tax_paise,discount_paise,COALESCE(promotion_code,''),cancellation_cutoff_minutes,
 		cancellation_refund_percent,COALESCE(cancellation_refund_amount_paise,0),provider,
 		COALESCE(provider_order_id,''),COALESCE(provider_payment_id,''),expires_at
 		FROM orders WHERE id=$1 AND user_id=$2`, orderID, userID).Scan(&order.ID, &order.ScreeningID, &order.UserID,
 		&order.HoldID, &order.Status, &order.AmountPaise, &order.Currency, &order.SubtotalPaise,
-		&order.ConvenienceFeePaise, &order.TaxPaise, &order.CancellationCutoffMinutes,
+		&order.ConvenienceFeePaise, &order.TaxPaise, &order.DiscountPaise, &order.PromotionCode, &order.CancellationCutoffMinutes,
 		&order.CancellationRefundPercent, &order.CancellationRefundAmountPaise, &order.Provider, &order.ProviderOrderID,
 		&order.ProviderPaymentID, &order.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -368,7 +425,7 @@ func (p *PostgresRepository) Booking(ctx context.Context, orderID, userID uuid.U
 }
 
 const bookingQuery = `SELECT o.id,o.screening_id,o.user_id,o.hold_id,o.status,o.amount_paise,o.currency,
-	o.subtotal_paise,o.convenience_fee_paise,o.tax_paise,o.cancellation_cutoff_minutes,
+	o.subtotal_paise,o.convenience_fee_paise,o.tax_paise,o.discount_paise,COALESCE(o.promotion_code,''),o.cancellation_cutoff_minutes,
 	o.cancellation_refund_percent,COALESCE(o.cancellation_refund_amount_paise,0),o.provider,
 	COALESCE(o.provider_order_id,''),COALESCE(o.provider_payment_id,''),o.expires_at,
 	m.title,c.name,c.city,c.timezone,s.name,s.format,sc.starts_at,o.created_at,
@@ -381,7 +438,7 @@ type rowScanner interface{ Scan(...any) error }
 func scanBooking(row rowScanner) (Booking, error) {
 	var b Booking
 	err := row.Scan(&b.ID, &b.ScreeningID, &b.UserID, &b.HoldID, &b.Status, &b.AmountPaise, &b.Currency,
-		&b.SubtotalPaise, &b.ConvenienceFeePaise, &b.TaxPaise, &b.CancellationCutoffMinutes,
+		&b.SubtotalPaise, &b.ConvenienceFeePaise, &b.TaxPaise, &b.DiscountPaise, &b.PromotionCode, &b.CancellationCutoffMinutes,
 		&b.CancellationRefundPercent, &b.CancellationRefundAmountPaise, &b.Provider, &b.ProviderOrderID,
 		&b.ProviderPaymentID, &b.ExpiresAt, &b.MovieTitle, &b.CinemaName, &b.CinemaCity, &b.CinemaTimezone, &b.ScreenName,
 		&b.ScreenFormat, &b.StartsAt, &b.CreatedAt, &b.CanCancel)

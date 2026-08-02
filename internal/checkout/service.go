@@ -86,7 +86,7 @@ func normalizeSeats(ids []string) []string {
 	return result
 }
 
-func (s *Service) Checkout(ctx context.Context, screeningID, holdID, userID uuid.UUID, idempotencyKey string) (Order, error) {
+func (s *Service) Checkout(ctx context.Context, screeningID, holdID, userID uuid.UUID, idempotencyKey, couponCode string) (Order, error) {
 	if strings.TrimSpace(idempotencyKey) == "" || len(idempotencyKey) > 128 {
 		return Order{}, errors.New("a valid Idempotency-Key header is required")
 	}
@@ -97,6 +97,7 @@ func (s *Service) Checkout(ctx context.Context, screeningID, holdID, userID uuid
 	if hold.UserID != userID {
 		return Order{}, ErrForbidden
 	}
+	hold.CouponCode = strings.ToUpper(strings.TrimSpace(couponCode))
 	order, created, err := s.repo.CreateOrder(ctx, hold, idempotencyKey)
 	if err != nil {
 		return Order{}, err
