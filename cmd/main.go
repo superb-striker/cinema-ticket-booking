@@ -119,6 +119,15 @@ func main() {
 	mux.Handle("POST /api/v1/admin/promotions", adminOnly(adminCatalog.Promotions))
 	mux.Handle("PUT /api/v1/admin/promotions/{promotionID}", adminOnly(adminCatalog.Promotion))
 	mux.Handle("DELETE /api/v1/admin/promotions/{promotionID}", adminOnly(adminCatalog.Promotion))
+	supportOrAdmin := func(handler http.HandlerFunc) http.Handler {
+		return authService.RequireRole(handler, "support", "admin")
+	}
+	mux.Handle("GET /api/v1/admin/bookings", supportOrAdmin(adminCatalog.SupportBookings))
+	mux.Handle("GET /api/v1/admin/bookings/{orderID}", supportOrAdmin(adminCatalog.SupportBooking))
+	mux.Handle("POST /api/v1/admin/bookings/{orderID}/cancel", supportOrAdmin(adminCatalog.SupportCancel))
+	mux.Handle("POST /api/v1/admin/bookings/{orderID}/refund", supportOrAdmin(adminCatalog.SupportRefund))
+	mux.Handle("GET /api/v1/admin/bookings/{orderID}/notes", supportOrAdmin(adminCatalog.SupportNotes))
+	mux.Handle("POST /api/v1/admin/bookings/{orderID}/notes", supportOrAdmin(adminCatalog.SupportNotes))
 	mux.HandleFunc("GET /api/v1/screenings", checkoutHandler.ListScreenings)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seats", checkoutHandler.Seats)
 	mux.HandleFunc("GET /api/v1/screenings/{screeningID}/seat-events", checkoutHandler.SeatEvents)
