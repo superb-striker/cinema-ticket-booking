@@ -103,12 +103,49 @@
           </div>
         </section>
 
-        <section id="support" class="panel"><div class="card"><h2>Booking support</h2><p class="muted">Booking search and support actions load here.</p></div></section>
-        <section id="reports" class="panel" data-admin-only><div class="card"><h2>Reports</h2><p class="muted">Operational reports load here.</p></div></section>
-        <section id="users" class="panel" data-admin-only><div class="card"><h2>Users &amp; roles</h2><p class="muted">Role administration loads here.</p></div></section>
+        <section id="support" class="panel">
+          <div class="card">
+            <div class="card-head"><h2>Booking lookup</h2><span class="muted">Search the latest 100 matching bookings</span></div>
+            <form id="bookingSearch" class="form-grid">
+              <label class="wide">Order, email, or provider ID<input id="bookingQuery" type="search" /></label>
+              <label>Status<select id="bookingStatus"><option value="">All statuses</option><option>payment_pending</option><option>confirmed</option><option>payment_failed</option><option>expired</option><option>refund_pending</option><option>refunded</option><option>cancelled</option></select></label>
+              <div class="actions"><button class="primary">Search bookings</button></div>
+            </form>
+            <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>Booking</th><th>Customer</th><th>Show</th><th>Seats</th><th>Payment</th><th>Status</th><th></th></tr></thead><tbody id="bookingRows"></tbody></table></div>
+          </div>
+          <div id="bookingWorkspace" class="split hidden">
+            <div class="card">
+              <div class="card-head"><h2>Support actions</h2><span id="selectedBookingStatus" class="badge"></span></div>
+              <div id="selectedBooking" class="muted"></div>
+              <form id="cancelForm" style="margin-top:18px"><label>Cancellation reason<textarea id="cancelReason" maxlength="500" required></textarea></label><label id="refundOverrideLabel" style="margin-top:10px">Refund percentage override (admin only)<input id="refundOverride" type="number" min="0" max="100" /></label><div class="actions" style="margin-top:12px"><button class="danger">Cancel booking</button><button id="fullRefund" type="button">Request full refund</button></div></form>
+            </div>
+            <div class="card">
+              <h2>Internal notes</h2>
+              <form id="noteForm"><label>New note<textarea id="supportNote" maxlength="2000" required></textarea></label><button class="primary" style="margin-top:10px">Add note</button></form>
+              <div id="supportNotes" style="margin-top:18px"></div>
+            </div>
+          </div>
+        </section>
+        <section id="reports" class="panel" data-admin-only>
+          <div class="card">
+            <div class="card-head"><h2>Report filters</h2><span class="muted">Maximum range: 366 days</span></div>
+            <form id="reportFilters" class="form-grid"><label>From<input id="reportFrom" type="date" required /></label><label>To<input id="reportTo" type="date" required /></label><label>Cinema<select id="reportCinema"><option value="">All cinemas</option></select></label><div class="actions"><button class="primary">Run reports</button></div></form>
+          </div>
+          <div id="reportMetrics" class="metric-grid" style="margin-bottom:18px"></div>
+          <div class="card"><h2>Revenue by cinema</h2><div class="table-wrap"><table><thead><tr><th>Cinema</th><th>Bookings</th><th>Gross</th><th>Refunds</th><th>Discounts</th><th>Net</th></tr></thead><tbody id="revenueRows"></tbody></table></div></div>
+          <div class="card"><h2>Show occupancy</h2><div class="table-wrap"><table><thead><tr><th>Show</th><th>Cinema</th><th>Starts</th><th>Occupied</th><th>Occupancy</th><th>Ticket revenue</th></tr></thead><tbody id="occupancyRows"></tbody></table></div></div>
+          <div class="split"><div class="card"><h2>Daily sales</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Bookings</th><th>Tickets</th><th>Subtotal</th><th>Discount</th></tr></thead><tbody id="salesRows"></tbody></table></div></div><div class="card"><h2>Payment failures</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Failed</th><th>Expired</th><th>Rate</th><th>Value</th></tr></thead><tbody id="failureRows"></tbody></table></div></div></div>
+        </section>
+        <section id="users" class="panel" data-admin-only>
+          <div class="card">
+            <div class="card-head"><h2>Users &amp; roles</h2><span class="muted">The final administrator cannot be removed.</span></div>
+            <form id="userSearch" class="actions"><input id="userQuery" type="search" placeholder="Search by email" /><button class="primary">Search users</button></form>
+            <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>User</th><th>Ownership</th><th>Roles</th><th>Actions</th></tr></thead><tbody id="userRows"></tbody></table></div>
+          </div>
+        </section>
       </main>
     </div>
-    <script src="/admin.js?v=1" defer></script>
+    <script src="/admin.js?v=2" defer></script>
   </body>
 </html>
 

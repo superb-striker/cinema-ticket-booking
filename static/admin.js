@@ -1,6 +1,6 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { user: null, movies: [], cinemas: [], auditoriums: [], tiers: [], shows: [], blocks: [], promotions: [] };
+  const state = { user: null, movies: [], cinemas: [], auditoriums: [], tiers: [], shows: [], blocks: [], promotions: [], bookings: [], selectedBooking: null, users: [], reports: {} };
   const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
   const money = (paise, currency = "INR") => new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(Number(paise || 0) / 100);
   const localInput = (value) => value ? new Date(value).toLocaleString("sv-SE").slice(0, 16) : "";
@@ -114,9 +114,44 @@
     ["layoutAuditorium","showAuditorium","blockAuditorium"].forEach((id)=>{const value=$(id).value;$(id).innerHTML=auditoriumOptions;$(id).value=value;});
     const movieValue=$("showMovie").value;$("showMovie").innerHTML=optionList(state.movies.filter((v)=>v.active),(v)=>v.title,true);$("showMovie").value=movieValue;
     const showValue=$("blockShow").value;$("blockShow").innerHTML=optionList(state.shows,(v)=>`${movieName(v.movie_id)} — ${new Date(v.starts_at).toLocaleString()}`,true,"All shows");$("blockShow").value=showValue;
+    const reportValue=$("reportCinema").value;$("reportCinema").innerHTML=optionList(state.cinemas,(v)=>v.name,true,"All cinemas");$("reportCinema").value=reportValue;
   }
+
+  function renderBookings(){
+    $("bookingRows").innerHTML=state.bookings.map((v)=>`<tr><td><code>${esc(v.id)}</code><br><span class="muted">${new Date(v.created_at).toLocaleString()}</span></td><td>${esc(v.email)}</td><td><strong>${esc(v.movie_title)}</strong><br>${esc(v.cinema_name)} · ${new Date(v.show_starts_at).toLocaleString()}</td><td>${esc(v.seats.join(", "))}</td><td>${money(v.amount_paise,v.currency)}<br><span class="muted">${esc(v.provider_payment_id||v.provider_order_id||"Not paid")}</span></td><td><span class="badge">${esc(v.status)}</span></td><td><button data-open-booking="${v.id}">Open</button></td></tr>`).join("")||`<tr><td colspan="7" class="empty">No matching bookings</td></tr>`;
+  }
+  async function loadBookings(){const params=new URLSearchParams();if($("bookingQuery").value.trim())params.set("q",$("bookingQuery").value.trim());if($("bookingStatus").value)params.set("status",$("bookingStatus").value);state.bookings=await api(`/api/v1/admin/bookings?${params}`);renderBookings();}
+  $("bookingSearch").onsubmit=(event)=>{event.preventDefault();perform(loadBookings,"Bookings refreshed");};
+  $("bookingRows").onclick=(event)=>{const id=event.target.dataset.openBooking;if(id)openBooking(id);};
+  async function openBooking(id){
+    state.selectedBooking=await api(`/api/v1/admin/bookings/${id}`);
+    const v=state.selectedBooking;$("bookingWorkspace").classList.remove("hidden");$("selectedBookingStatus").textContent=v.status;
+    $("selectedBooking").innerHTML=`<strong>${esc(v.movie_title)}</strong><br>${esc(v.cinema_name)} · ${new Date(v.show_starts_at).toLocaleString()}<br>Seats: ${esc(v.seats.join(", "))}<br>Customer: ${esc(v.email)}<br>Order: <code>${esc(v.id)}</code><br>Provider payment: <code>${esc(v.provider_payment_id||"—")}</code>`;
+    $("cancelForm").classList.toggle("hidden",v.status!=="confirmed");$("cancelReason").value="";$("refundOverride").value="";
+    await loadNotes();$("bookingWorkspace").scrollIntoView({behavior:"smooth",block:"start"});
+  }
+  async function loadNotes(){if(!state.selectedBooking)return;const notes=await api(`/api/v1/admin/bookings/${state.selectedBooking.id}/notes`);$("supportNotes").innerHTML=notes.map((v)=>`<div class="metric" style="margin-bottom:8px"><div>${esc(v.note)}</div><small class="muted">${esc(v.author_email)} · ${new Date(v.created_at).toLocaleString()}</small></div>`).join("")||`<div class="empty">No internal notes</div>`;}
+  $("noteForm").onsubmit=(event)=>{event.preventDefault();perform(async()=>{await api(`/api/v1/admin/bookings/${state.selectedBooking.id}/notes`,{method:"POST",body:JSON.stringify({note:$("supportNote").value.trim()})});$("supportNote").value="";await loadNotes();},"Support note added");};
+  $("cancelForm").onsubmit=(event)=>{event.preventDefault();if(!confirm("Cancel this confirmed booking and release its seats?"))return;perform(async()=>{const body={reason:$("cancelReason").value.trim()};if($("refundOverride").value!=="")body.refund_percent=Number($("refundOverride").value);await api(`/api/v1/admin/bookings/${state.selectedBooking.id}/cancel`,{method:"POST",body:JSON.stringify(body)});await loadBookings();await openBooking(state.selectedBooking.id);},"Cancellation accepted");};
+  $("fullRefund").onclick=()=>{if(!confirm("Request a full refund and release the booked seats?"))return;perform(async()=>{await api(`/api/v1/admin/bookings/${state.selectedBooking.id}/refund`,{method:"POST",body:JSON.stringify({reason:$("cancelReason").value.trim()||"Full refund requested by support"})});await loadBookings();await openBooking(state.selectedBooking.id);},"Full refund queued");};
+
+  function reportQuery(){const params=new URLSearchParams({from:$("reportFrom").value,to:$("reportTo").value});if($("reportCinema").value)params.set("cinema_id",$("reportCinema").value);return params.toString();}
+  async function loadReports(){const query=reportQuery();const [sales,occupancy,failures,revenue]=await Promise.all([api(`/api/v1/admin/reports/sales?${query}`),api(`/api/v1/admin/reports/occupancy?${query}`),api(`/api/v1/admin/reports/payment-failures?${query}`),api(`/api/v1/admin/reports/revenue?${query}`)]);state.reports={sales,occupancy,failures,revenue};renderReports();}
+  function renderReports(){const {sales,occupancy,failures,revenue}=state.reports;const bookings=sales.reduce((n,v)=>n+v.bookings,0),tickets=sales.reduce((n,v)=>n+v.tickets,0),gross=revenue.reduce((n,v)=>n+v.gross_paise,0),net=revenue.reduce((n,v)=>n+v.net_paise,0),failed=failures.reduce((n,v)=>n+v.failed+v.expired,0);$("reportMetrics").innerHTML=[['Bookings',bookings],['Tickets',tickets],['Gross',money(gross)],['Net revenue',money(net)],['Failed / expired',failed]].map(([label,value])=>`<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("");
+    $("revenueRows").innerHTML=revenue.map((v)=>`<tr><td>${esc(v.cinema_name)}</td><td>${v.bookings}</td><td>${money(v.gross_paise,v.currency)}</td><td>${money(v.refunds_paise,v.currency)}</td><td>${money(v.discount_paise,v.currency)}</td><td><strong>${money(v.net_paise,v.currency)}</strong></td></tr>`).join("")||`<tr><td colspan="6" class="empty">No revenue in this range</td></tr>`;
+    $("occupancyRows").innerHTML=occupancy.map((v)=>`<tr><td>${esc(v.movie_title)}<br><span class="muted">${esc(v.auditorium_name)}</span></td><td>${esc(v.cinema_name)}</td><td>${new Date(v.starts_at).toLocaleString()}</td><td>${v.occupied} / ${v.capacity}</td><td>${Number(v.occupancy_percent).toFixed(1)}%</td><td>${money(v.ticket_revenue_paise)}</td></tr>`).join("")||`<tr><td colspan="6" class="empty">No shows in this range</td></tr>`;
+    $("salesRows").innerHTML=sales.map((v)=>`<tr><td>${esc(v.date)}</td><td>${v.bookings}</td><td>${v.tickets}</td><td>${money(v.subtotal_paise)}</td><td>${money(v.discount_paise)}</td></tr>`).join("")||`<tr><td colspan="5" class="empty">No sales</td></tr>`;
+    $("failureRows").innerHTML=failures.map((v)=>`<tr><td>${esc(v.date)}</td><td>${v.failed}</td><td>${v.expired}</td><td>${Number(v.failure_percent).toFixed(1)}%</td><td>${money(v.failed_value_paise)}</td></tr>`).join("")||`<tr><td colspan="5" class="empty">No payment attempts</td></tr>`;
+  }
+  $("reportFilters").onsubmit=(event)=>{event.preventDefault();perform(loadReports,"Reports refreshed");};
+
+  function renderUsers(){$("userRows").innerHTML=state.users.map((v)=>{const admin=v.roles.includes("admin"),support=v.roles.includes("support");return `<tr><td><strong>${esc(v.email)}</strong><br><code>${esc(v.id)}</code></td><td>Email ${v.email_verified?'<span class="success">verified</span>':'<span class="warning">unverified</span>'}<br>Phone ${v.phone_verified?'<span class="success">verified</span>':'<span class="warning">unverified</span>'}</td><td>${v.roles.map((role)=>`<span class="badge">${esc(role)}</span>`).join(" ")||'<span class="muted">Customer</span>'}</td><td class="actions"><button data-user="${v.id}" data-role="admin" data-grant="${!admin}">${admin?'Remove admin':'Make admin'}</button><button data-user="${v.id}" data-role="support" data-grant="${!support}">${support?'Remove support':'Make support'}</button></td></tr>`;}).join("")||`<tr><td colspan="4" class="empty">No matching users</td></tr>`;}
+  async function loadUsers(){const query=encodeURIComponent($("userQuery").value.trim());state.users=await api(`/api/v1/admin/users?q=${query}`);renderUsers();}
+  $("userSearch").onsubmit=(event)=>{event.preventDefault();perform(loadUsers,"Users refreshed");};
+  $("userRows").onclick=(event)=>{const user=event.target.dataset.user;if(!user)return;const role=event.target.dataset.role,grant=event.target.dataset.grant==="true";if(!confirm(`${grant?"Grant":"Remove"} ${role} role?`))return;perform(async()=>{await api(`/api/v1/admin/users/${user}/roles/${role}`,{method:grant?"PUT":"DELETE"});await loadUsers();},`Role ${grant?"granted":"removed"}`);};
+
   async function loadAdminData(){await Promise.all([loadMovies(),loadCinemas()]);await Promise.all([loadAuditoriums(),loadTiers(),loadShows(),loadBlocks(),loadPromotions()]);}
-  async function loadCurrentPanel(){ if(hasRole("admin")) await loadAdminData(); }
+  async function loadCurrentPanel(){const panel=document.querySelector(".panel.active")?.id;if(panel==="support")return loadBookings();if(panel==="reports")return loadReports();if(panel==="users")return loadUsers();if(hasRole("admin"))return loadAdminData();}
   $("refresh").onclick=()=>perform(loadCurrentPanel,"Data refreshed");
   $("logout").onclick=async()=>{await api("/api/v1/auth/logout",{method:"POST"});location.href="/";};
 
@@ -125,8 +160,10 @@
     const allowed=hasRole("admin")||hasRole("support");
     if(!allowed){$("accessDenied").classList.remove("hidden");document.querySelectorAll(".panel,.topbar").forEach((el)=>el.classList.add("hidden"));return;}
     $("identity").textContent=`${state.user.email} · ${state.user.roles.join(", ")}`;
-    if(!hasRole("admin")){document.querySelectorAll("[data-admin-only]").forEach((el)=>el.classList.add("hidden"));document.querySelector('button[data-panel="support"]').click();}
-    if(hasRole("admin")) await loadAdminData();
+    $("refundOverrideLabel").classList.toggle("hidden",!hasRole("admin"));
+    const today=new Date(),from=new Date();from.setDate(today.getDate()-30);$("reportFrom").value=from.toISOString().slice(0,10);$("reportTo").value=today.toISOString().slice(0,10);
+    if(!hasRole("admin")){document.querySelectorAll("[data-admin-only],nav button[data-panel='catalog'],nav button[data-panel='venues'],nav button[data-panel='shows'],nav button[data-panel='promotions'],nav button[data-panel='reports'],nav button[data-panel='users']").forEach((el)=>el.classList.add("hidden"));document.querySelector('button[data-panel="support"]').click();await loadBookings();}
+    if(hasRole("admin")){await loadAdminData();await Promise.all([loadBookings(),loadUsers(),loadReports()]);}
   }
   init().catch((error)=>message(error.message,"error"));
 })();
