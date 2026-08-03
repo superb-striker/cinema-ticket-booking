@@ -491,7 +491,11 @@ func (h *CatalogHandler) PricingTier(w http.ResponseWriter, r *http.Request) {
 
 func (h *CatalogHandler) Shows(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		rows, err := h.db.Query(r.Context(), `SELECT id,movie_id,screen_id,starts_at,sales_end_at,base_price_paise,currency,status FROM screenings ORDER BY starts_at DESC LIMIT 500`)
+		rows, err := h.db.Query(r.Context(), `SELECT sc.id,sc.movie_id,sc.screen_id,sc.starts_at,sc.sales_end_at,
+			sc.base_price_paise,sc.currency,sc.status,COALESCE((SELECT json_agg(json_build_object(
+			'pricing_tier_id',sp.pricing_tier_id,'price_paise',sp.price_paise) ORDER BY sp.pricing_tier_id)
+			FROM screening_prices sp WHERE sp.screening_id=sc.id),'[]'::json) prices
+			FROM screenings sc ORDER BY sc.starts_at DESC LIMIT 500`)
 		if err != nil {
 			serverError(w)
 			return
@@ -503,11 +507,12 @@ func (h *CatalogHandler) Shows(w http.ResponseWriter, r *http.Request) {
 			var starts, sales time.Time
 			var price int64
 			var currency, status string
-			if err := rows.Scan(&id, &movieID, &screenID, &starts, &sales, &price, &currency, &status); err != nil {
+			var prices json.RawMessage
+			if err := rows.Scan(&id, &movieID, &screenID, &starts, &sales, &price, &currency, &status, &prices); err != nil {
 				serverError(w)
 				return
 			}
-			items = append(items, map[string]any{"id": id, "movie_id": movieID, "auditorium_id": screenID, "starts_at": starts, "sales_end_at": sales, "base_price_paise": price, "currency": currency, "status": status})
+			items = append(items, map[string]any{"id": id, "movie_id": movieID, "auditorium_id": screenID, "starts_at": starts, "sales_end_at": sales, "base_price_paise": price, "currency": currency, "status": status, "prices": prices})
 		}
 		utils.WriteJSON(w, http.StatusOK, items)
 		return

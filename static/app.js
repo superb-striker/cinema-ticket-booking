@@ -57,6 +57,7 @@
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
       $("logout").classList.remove("hidden");
+	  $("adminLink").classList.toggle("hidden", !state.user.roles?.some((role) => role === "admin" || role === "support"));
       $("bookings").classList.remove("hidden");
       $("phone").value = state.user.phone || "";
       renderVerification();
@@ -69,6 +70,7 @@
   function showSignedOut() {
     $("identity").textContent = "Not signed in";
     $("logout").classList.add("hidden");
+	$("adminLink").classList.add("hidden");
     $("auth").classList.remove("hidden");
     $("bookings").classList.add("hidden");
   }
@@ -92,6 +94,7 @@
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
       $("logout").classList.remove("hidden");
+	  $("adminLink").classList.toggle("hidden", !state.user.roles?.some((role) => role === "admin" || role === "support"));
       $("bookings").classList.remove("hidden");
       $("phone").value = state.user.phone || "";
       renderVerification();
