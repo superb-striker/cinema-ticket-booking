@@ -2,7 +2,7 @@ package checkout
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"math"
 	"time"
 )
@@ -53,9 +53,9 @@ func (w *Worker) runCycle(ctx context.Context) {
 	cycleCtx, cancel := context.WithTimeout(ctx, w.lease)
 	defer cancel()
 	if count, err := w.repo.ExpireOrders(cycleCtx); err != nil {
-		log.Printf("expire orders: %v", err)
+		slog.ErrorContext(ctx, "expire orders", "error", err)
 	} else if count > 0 {
-		log.Printf("released %d expired order seats", count)
+		slog.InfoContext(ctx, "released expired order seats", "count", count)
 	}
 	for range 20 {
 		if !w.processRefund(cycleCtx) {
@@ -72,7 +72,7 @@ func (w *Worker) runCycle(ctx context.Context) {
 func (w *Worker) processRefund(ctx context.Context) bool {
 	action, ok, err := w.repo.ClaimRefund(ctx, w.lease)
 	if err != nil {
-		log.Printf("claim refund: %v", err)
+		slog.ErrorContext(ctx, "claim refund", "error", err)
 		return false
 	}
 	if !ok {
@@ -82,12 +82,12 @@ func (w *Worker) processRefund(ctx context.Context) bool {
 	if err != nil {
 		next := w.now().Add(workerBackoff(action.Attempts, time.Minute, 6*time.Hour))
 		if retryErr := w.repo.RetryRefund(ctx, action, err.Error(), next); retryErr != nil {
-			log.Printf("retry refund %s: %v", action.ID, retryErr)
+			slog.ErrorContext(ctx, "schedule refund retry", "action_id", action.ID, "error", retryErr)
 		}
 		return true
 	}
 	if err := w.repo.CompleteRefund(ctx, action, providerID); err != nil {
-		log.Printf("complete refund %s: %v", action.ID, err)
+		slog.ErrorContext(ctx, "complete refund", "action_id", action.ID, "error", err)
 	}
 	return true
 }
@@ -95,7 +95,7 @@ func (w *Worker) processRefund(ctx context.Context) bool {
 func (w *Worker) processReconciliation(ctx context.Context) bool {
 	order, ok, err := w.repo.ClaimReconciliation(ctx, w.lease)
 	if err != nil {
-		log.Printf("claim reconciliation: %v", err)
+		slog.ErrorContext(ctx, "claim reconciliation", "error", err)
 		return false
 	}
 	if !ok {
@@ -108,19 +108,19 @@ func (w *Worker) processReconciliation(ctx context.Context) bool {
 	if err != nil {
 		next := w.now().Add(workerBackoff(order.ReconciliationAttempts, 30*time.Second, 30*time.Minute))
 		if retryErr := w.repo.RetryReconciliation(ctx, order, next); retryErr != nil {
-			log.Printf("retry reconciliation %s: %v", order.ID, retryErr)
+			slog.ErrorContext(ctx, "schedule reconciliation retry", "order_id", order.ID, "error", retryErr)
 		}
 		return true
 	}
 	if captured {
 		if err := w.repo.CompleteReconciliation(ctx, order); err != nil {
-			log.Printf("complete reconciliation %s: %v", order.ID, err)
+			slog.ErrorContext(ctx, "complete reconciliation", "order_id", order.ID, "error", err)
 		}
 		return true
 	}
 	next := w.now().Add(workerBackoff(order.ReconciliationAttempts, 30*time.Second, 30*time.Minute))
 	if err := w.repo.RetryReconciliation(ctx, order, next); err != nil {
-		log.Printf("reschedule reconciliation %s: %v", order.ID, err)
+		slog.ErrorContext(ctx, "reschedule reconciliation", "order_id", order.ID, "error", err)
 	}
 	return true
 }

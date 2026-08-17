@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,27 +24,39 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("load configuration", "error", err)
+		os.Exit(1)
 	}
+	var logLevel slog.Level
+	if err := logLevel.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
+		slog.Error("parse log level", "error", err)
+		os.Exit(1)
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	slog.SetDefault(logger)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	db, err := database.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 	rdb, err := redis.NewClientWithPassword(cfg.RedisAddr, cfg.RedisPassword)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("open redis", "error", err)
+		os.Exit(1)
 	}
 	defer rdb.Close()
 
 	authService := auth.NewService(db, cfg.SessionTTL, cfg.CookieSecure, cfg.PublicBaseURL, cfg.VerificationSecret)
 	if err := authService.ConfigureGoogle(ctx, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL); err != nil {
-		log.Fatal(err)
+		logger.Error("configure Google login", "error", err)
+		os.Exit(1)
 	}
 	if err := authService.ConfigureAdminRoles(ctx, cfg.AdminEmails); err != nil {
-		log.Fatal(err)
+		logger.Error("configure administrator roles", "error", err)
+		os.Exit(1)
 	}
 	authHandler := auth.NewHandler(authService)
 	adminCatalog := admin.NewCatalogHandler(db)
@@ -63,7 +75,8 @@ func main() {
 	go notificationWorker.Run(ctx)
 	limiter, err := httpmiddleware.NewRateLimiter(rdb, "cinema", cfg.TrustedProxyCIDRs)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("configure rate limiter", "error", err)
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
@@ -161,12 +174,14 @@ func main() {
 	secured, err := httpmiddleware.Security(httpmiddleware.SecurityConfig{RequireHTTPS: cfg.RequireHTTPS,
 		AllowedOrigins: cfg.CORSAllowedOrigins, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, HSTSMaxAge: cfg.HSTSMaxAge}, mux)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("configure HTTP security", "error", err)
+		os.Exit(1)
 	}
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: secured, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+	observed := httpmiddleware.RequestObservability(logger, secured)
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: observed, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		ReadTimeout: cfg.HTTPReadTimeout, WriteTimeout: cfg.HTTPWriteTimeout, IdleTimeout: cfg.HTTPIdleTimeout, MaxHeaderBytes: 1 << 20}
 	go func() {
-		log.Printf("cinema API listening on %s", cfg.HTTPAddr)
+		logger.Info("cinema API listening", "address", cfg.HTTPAddr, "environment", cfg.Environment)
 		var serveErr error
 		if cfg.TLSCertFile != "" {
 			serveErr = server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
@@ -174,13 +189,15 @@ func main() {
 			serveErr = server.ListenAndServe()
 		}
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.Fatalf("serve: %v", serveErr)
+			logger.Error("HTTP server failed", "error", serveErr)
+			cancel()
 		}
 	}()
 	<-ctx.Done()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("graceful shutdown: %v", err)
+		logger.Error("graceful shutdown failed", "error", err)
 	}
+	logger.Info("cinema API stopped")
 }

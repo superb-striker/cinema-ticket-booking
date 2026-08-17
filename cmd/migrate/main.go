@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -10,9 +10,12 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		log.Fatal("DATABASE_URL is required")
+		logger.Error("DATABASE_URL is required")
+		os.Exit(1)
 	}
 	directory := os.Getenv("MIGRATIONS_DIR")
 	if directory == "" {
@@ -22,11 +25,13 @@ func main() {
 	defer cancel()
 	db, err := database.Open(ctx, databaseURL)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 	if err := database.Migrate(ctx, db, directory); err != nil {
-		log.Fatal(err)
+		logger.Error("apply database migrations", "error", err)
+		os.Exit(1)
 	}
-	log.Println("database migrations are up to date")
+	logger.Info("database migrations are up to date")
 }

@@ -12,6 +12,7 @@ import (
 
 type Config struct {
 	Environment           string
+	LogLevel              string
 	HTTPAddr              string
 	HTTPReadHeaderTimeout time.Duration
 	HTTPReadTimeout       time.Duration
@@ -81,6 +82,7 @@ func Load() (Config, error) {
 	}
 	c := Config{
 		Environment:           strings.ToLower(env("APP_ENV", "development")),
+		LogLevel:              strings.ToLower(env("LOG_LEVEL", "info")),
 		HTTPAddr:              env("HTTP_ADDR", ":8080"),
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPReadTimeout:       readTimeout,
@@ -121,6 +123,9 @@ func Load() (Config, error) {
 	}
 	if c.Environment != "development" && c.Environment != "test" && c.Environment != "production" {
 		return Config{}, fmt.Errorf("APP_ENV must be development, test, or production")
+	}
+	if c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warn" && c.LogLevel != "error" {
+		return Config{}, fmt.Errorf("LOG_LEVEL must be debug, info, warn, or error")
 	}
 	if _, _, err := net.SplitHostPort(c.HTTPAddr); err != nil {
 		return Config{}, fmt.Errorf("HTTP_ADDR must contain a valid host and port: %w", err)

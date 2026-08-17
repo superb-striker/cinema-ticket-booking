@@ -3,7 +3,7 @@ package booking
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -35,7 +35,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrForbidden):
 		utils.WriteError(w, http.StatusForbidden, err.Error())
 	default:
-		log.Printf("internal error: %v", err)
+		slog.Error("booking handler failed", "error", err)
 		utils.WriteError(w, http.StatusInternalServerError, "internal server error")
 	}
 }

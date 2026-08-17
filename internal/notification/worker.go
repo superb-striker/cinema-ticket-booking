@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/smtp"
@@ -67,7 +67,7 @@ func (w *Worker) run(ctx context.Context) {
 	for range 20 {
 		item, ok, err := w.claim(ctx)
 		if err != nil {
-			log.Printf("claim notification: %v", err)
+			slog.ErrorContext(ctx, "claim notification", "error", err)
 			return
 		}
 		if !ok {
@@ -82,11 +82,11 @@ func (w *Worker) run(ctx context.Context) {
 			_, updateErr := w.db.Exec(ctx, `UPDATE notification_jobs SET status='failed',locked_until=NULL,last_error=$2,
 				next_attempt_at=$3,updated_at=now() WHERE id=$1 AND status='processing'`, item.ID, truncate(err.Error(), 1000), time.Now().Add(delay))
 			if updateErr != nil {
-				log.Printf("reschedule notification %s: %v", item.ID, updateErr)
+				slog.ErrorContext(ctx, "reschedule notification", "notification_id", item.ID, "error", updateErr)
 			}
 		}
 		if err != nil {
-			log.Printf("deliver %s notification %s: %v", item.Channel, item.ID, err)
+			slog.ErrorContext(ctx, "deliver notification", "channel", item.Channel, "notification_id", item.ID, "error", err)
 		}
 	}
 }
@@ -115,7 +115,7 @@ func (w *Worker) deliver(ctx context.Context, item job) error {
 		return err
 	}
 	if w.config.LogOnly {
-		log.Printf("notification log-only channel=%s recipient=%s subject=%q body=%q", item.Channel, item.Recipient, subject, body)
+		slog.InfoContext(ctx, "notification log-only delivery", "channel", item.Channel, "recipient", item.Recipient, "subject", subject, "body", body)
 		return nil
 	}
 	switch item.Channel {

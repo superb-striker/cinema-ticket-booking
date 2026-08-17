@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/mail"
@@ -535,7 +535,7 @@ func (s *Service) RunMaintenance(ctx context.Context, interval time.Duration) {
 				"verification challenges": `DELETE FROM verification_challenges WHERE expires_at<=now() OR consumed_at IS NOT NULL`,
 			} {
 				if _, err := s.db.Exec(ctx, query); err != nil {
-					log.Printf("purge expired %s: %v", name, err)
+					slog.Error("purge expired authentication records", "record_type", name, "error", err)
 				}
 			}
 		}

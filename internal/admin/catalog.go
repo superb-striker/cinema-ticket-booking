@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -656,6 +656,6 @@ func conflictOrServer(w http.ResponseWriter, err error) {
 		utils.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
-	log.Printf("admin catalog operation failed: %v", err)
+	slog.Error("admin catalog operation failed", "error", err)
 	serverError(w)
 }

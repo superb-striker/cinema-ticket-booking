@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"text/template"
@@ -101,7 +101,7 @@ func (h *Handler) DownloadTicket(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="ticket-%s.html"`, orderID))
 	if err := ticketTemplate.Execute(w, data); err != nil {
-		log.Printf("render ticket: %v", err)
+		slog.ErrorContext(r.Context(), "render ticket", "error", err)
 	}
 }
 
@@ -425,6 +425,6 @@ func writeDomainError(w http.ResponseWriter, err error) {
 }
 
 func serverError(w http.ResponseWriter, err error) {
-	log.Printf("internal error: %v", err)
+	slog.Error("checkout handler failed", "error", err)
 	utils.WriteError(w, http.StatusInternalServerError, "internal server error")
 }
