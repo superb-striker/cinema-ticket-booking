@@ -2,13 +2,27 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
+	Environment           string
 	HTTPAddr              string
+	HTTPReadHeaderTimeout time.Duration
+	HTTPReadTimeout       time.Duration
+	HTTPWriteTimeout      time.Duration
+	HTTPIdleTimeout       time.Duration
+	ShutdownTimeout       time.Duration
+	TLSCertFile           string
+	TLSKeyFile            string
+	RequireHTTPS          bool
+	CORSAllowedOrigins    []string
+	HSTSMaxAge            time.Duration
 	DatabaseURL           string
 	RedisAddr             string
 	RedisPassword         string
@@ -38,8 +52,46 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY"); err != nil {
+		return Config{}, err
+	}
+	readHeaderTimeout, err := envDuration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	readTimeout, err := envDuration("HTTP_READ_TIMEOUT", 15*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	writeTimeout, err := envDuration("HTTP_WRITE_TIMEOUT", 20*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	idleTimeout, err := envDuration("HTTP_IDLE_TIMEOUT", 60*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	shutdownTimeout, err := envDuration("SHUTDOWN_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	hstsMaxAge, err := envDuration("HSTS_MAX_AGE", 365*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
 	c := Config{
+		Environment:           strings.ToLower(env("APP_ENV", "development")),
 		HTTPAddr:              env("HTTP_ADDR", ":8080"),
+		HTTPReadHeaderTimeout: readHeaderTimeout,
+		HTTPReadTimeout:       readTimeout,
+		HTTPWriteTimeout:      writeTimeout,
+		HTTPIdleTimeout:       idleTimeout,
+		ShutdownTimeout:       shutdownTimeout,
+		TLSCertFile:           os.Getenv("TLS_CERT_FILE"),
+		TLSKeyFile:            os.Getenv("TLS_KEY_FILE"),
+		RequireHTTPS:          envBool("REQUIRE_HTTPS", false),
+		CORSAllowedOrigins:    splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
+		HSTSMaxAge:            hstsMaxAge,
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
 		RedisAddr:             env("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:         os.Getenv("REDIS_PASSWORD"),
@@ -67,8 +119,17 @@ func Load() (Config, error) {
 		SMSWebhookURL:         os.Getenv("SMS_WEBHOOK_URL"),
 		SMSAPIToken:           os.Getenv("SMS_API_TOKEN"),
 	}
+	if c.Environment != "development" && c.Environment != "test" && c.Environment != "production" {
+		return Config{}, fmt.Errorf("APP_ENV must be development, test, or production")
+	}
+	if _, _, err := net.SplitHostPort(c.HTTPAddr); err != nil {
+		return Config{}, fmt.Errorf("HTTP_ADDR must contain a valid host and port: %w", err)
+	}
 	if c.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
+	}
+	if parsed, err := url.Parse(c.DatabaseURL); err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.Host == "" {
+		return Config{}, fmt.Errorf("DATABASE_URL must be a valid postgres URL")
 	}
 	if c.RazorpayKeyID == "" || c.RazorpayKeySecret == "" || c.RazorpayWebhookSecret == "" {
 		return Config{}, fmt.Errorf("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET are required")
@@ -87,6 +148,49 @@ func Load() (Config, error) {
 	}
 	if !c.NotificationLogOnly && c.SMTPAddr == "" {
 		return Config{}, fmt.Errorf("SMTP delivery must be configured unless NOTIFICATION_LOG_ONLY=true")
+	}
+	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
+		return Config{}, fmt.Errorf("TLS_CERT_FILE and TLS_KEY_FILE must be configured together")
+	}
+	publicURL, err := url.Parse(c.PublicBaseURL)
+	if err != nil || publicURL.Host == "" || (publicURL.Scheme != "http" && publicURL.Scheme != "https") {
+		return Config{}, fmt.Errorf("PUBLIC_BASE_URL must be an absolute http or https URL")
+	}
+	publicOrigin := publicURL.Scheme + "://" + publicURL.Host
+	foundPublicOrigin := false
+	for _, origin := range c.CORSAllowedOrigins {
+		foundPublicOrigin = foundPublicOrigin || origin == publicOrigin
+	}
+	if !foundPublicOrigin {
+		c.CORSAllowedOrigins = append(c.CORSAllowedOrigins, publicOrigin)
+	}
+	for _, origin := range c.CORSAllowedOrigins {
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return Config{}, fmt.Errorf("invalid CORS_ALLOWED_ORIGINS value %q", origin)
+		}
+	}
+	if c.HTTPReadHeaderTimeout <= 0 || c.HTTPReadTimeout <= 0 || c.HTTPWriteTimeout <= 0 ||
+		c.HTTPIdleTimeout <= 0 || c.ShutdownTimeout <= 0 || c.HSTSMaxAge < 0 {
+		return Config{}, fmt.Errorf("HTTP, shutdown, and HSTS durations must be positive")
+	}
+	if c.Environment == "production" {
+		if publicURL.Scheme != "https" || !c.CookieSecure || !c.RequireHTTPS {
+			return Config{}, fmt.Errorf("production requires an https PUBLIC_BASE_URL, COOKIE_SECURE=true, and REQUIRE_HTTPS=true")
+		}
+		if c.NotificationLogOnly {
+			return Config{}, fmt.Errorf("NOTIFICATION_LOG_ONLY must be false in production")
+		}
+		if strings.HasPrefix(c.RazorpayKeyID, "rzp_test_") {
+			return Config{}, fmt.Errorf("Razorpay test credentials are not allowed in production")
+		}
+		for _, value := range []string{c.RazorpayKeyID, c.RazorpayKeySecret, c.RazorpayWebhookSecret,
+			c.TicketSigningSecret, c.ScannerAPIKey, c.VerificationSecret} {
+			lower := strings.ToLower(value)
+			if strings.Contains(lower, "replace") || strings.Contains(lower, "change-in-production") || strings.Contains(lower, "your_") {
+				return Config{}, fmt.Errorf("placeholder secrets are not allowed in production")
+			}
+		}
 	}
 	return c, nil
 }
@@ -108,4 +212,37 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid duration: %w", key, err)
+	}
+	return parsed, nil
+}
+
+func splitCSV(value string) []string {
+	var result []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, strings.TrimSuffix(item, "/"))
+		}
+	}
+	return result
+}
+
+func validateBoolEnvs(keys ...string) error {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			if _, err := strconv.ParseBool(value); err != nil {
+				return fmt.Errorf("%s must be true or false", key)
+			}
+		}
+	}
+	return nil
 }

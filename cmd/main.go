@@ -158,28 +158,29 @@ func main() {
 	})
 	mux.Handle("GET /", http.FileServer(http.Dir("static")))
 
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: securityHeaders(mux), ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	secured, err := httpmiddleware.Security(httpmiddleware.SecurityConfig{RequireHTTPS: cfg.RequireHTTPS,
+		AllowedOrigins: cfg.CORSAllowedOrigins, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, HSTSMaxAge: cfg.HSTSMaxAge}, mux)
+	if err != nil {
+		log.Fatal(err)
+	}
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: secured, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		ReadTimeout: cfg.HTTPReadTimeout, WriteTimeout: cfg.HTTPWriteTimeout, IdleTimeout: cfg.HTTPIdleTimeout, MaxHeaderBytes: 1 << 20}
 	go func() {
 		log.Printf("cinema API listening on %s", cfg.HTTPAddr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("serve: %v", err)
+		var serveErr error
+		if cfg.TLSCertFile != "" {
+			serveErr = server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+		} else {
+			serveErr = server.ListenAndServe()
+		}
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.Fatalf("serve: %v", serveErr)
 		}
 	}()
 	<-ctx.Done()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("graceful shutdown: %v", err)
 	}
-}
-
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://checkout.razorpay.com; frame-src https://api.razorpay.com https://*.razorpay.com; connect-src 'self' https://api.razorpay.com; style-src 'self' 'unsafe-inline'")
-		next.ServeHTTP(w, r)
-	})
 }
