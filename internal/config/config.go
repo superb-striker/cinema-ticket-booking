@@ -13,6 +13,8 @@ import (
 type Config struct {
 	Environment           string
 	LogLevel              string
+	MetricsEnabled        bool
+	MetricsToken          string
 	HTTPAddr              string
 	HTTPReadHeaderTimeout time.Duration
 	HTTPReadTimeout       time.Duration
@@ -53,7 +55,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY"); err != nil {
+	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY", "METRICS_ENABLED"); err != nil {
 		return Config{}, err
 	}
 	readHeaderTimeout, err := envDuration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second)
@@ -83,6 +85,8 @@ func Load() (Config, error) {
 	c := Config{
 		Environment:           strings.ToLower(env("APP_ENV", "development")),
 		LogLevel:              strings.ToLower(env("LOG_LEVEL", "info")),
+		MetricsEnabled:        envBool("METRICS_ENABLED", true),
+		MetricsToken:          os.Getenv("METRICS_TOKEN"),
 		HTTPAddr:              env("HTTP_ADDR", ":8080"),
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPReadTimeout:       readTimeout,
@@ -185,6 +189,9 @@ func Load() (Config, error) {
 		}
 		if c.NotificationLogOnly {
 			return Config{}, fmt.Errorf("NOTIFICATION_LOG_ONLY must be false in production")
+		}
+		if c.MetricsEnabled && len(c.MetricsToken) < 24 {
+			return Config{}, fmt.Errorf("production METRICS_TOKEN must contain at least 24 characters when metrics are enabled")
 		}
 		if strings.HasPrefix(c.RazorpayKeyID, "rzp_test_") {
 			return Config{}, fmt.Errorf("Razorpay test credentials are not allowed in production")

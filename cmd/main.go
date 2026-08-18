@@ -18,6 +18,7 @@ import (
 	"github.com/superb-striker/cinema/internal/database"
 	"github.com/superb-striker/cinema/internal/httpmiddleware"
 	"github.com/superb-striker/cinema/internal/notification"
+	"github.com/superb-striker/cinema/internal/observability"
 	"github.com/superb-striker/cinema/internal/utils"
 )
 
@@ -78,6 +79,7 @@ func main() {
 		logger.Error("configure rate limiter", "error", err)
 		os.Exit(1)
 	}
+	metrics := observability.NewMetrics(db, rdb)
 
 	mux := http.NewServeMux()
 	userKey := func(r *http.Request) string { user, _ := auth.UserFromContext(r.Context()); return user.ID.String() }
@@ -169,6 +171,9 @@ func main() {
 		}
 		utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
+	if cfg.MetricsEnabled {
+		mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
+	}
 	mux.Handle("GET /", http.FileServer(http.Dir("static")))
 
 	secured, err := httpmiddleware.Security(httpmiddleware.SecurityConfig{RequireHTTPS: cfg.RequireHTTPS,
@@ -177,7 +182,7 @@ func main() {
 		logger.Error("configure HTTP security", "error", err)
 		os.Exit(1)
 	}
-	observed := httpmiddleware.RequestObservability(logger, secured)
+	observed := httpmiddleware.RequestObservability(logger, metrics, secured)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: observed, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		ReadTimeout: cfg.HTTPReadTimeout, WriteTimeout: cfg.HTTPWriteTimeout, IdleTimeout: cfg.HTTPIdleTimeout, MaxHeaderBytes: 1 << 20}
 	go func() {

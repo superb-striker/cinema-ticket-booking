@@ -14,7 +14,7 @@ import (
 func TestRequestObservabilityPreservesRequestIDAndLogs(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	handler := RequestObservability(logger, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequestObservability(logger, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if RequestID(r.Context()) != "client-request-123" {
 			t.Fatalf("request ID missing from context")
 		}
@@ -38,7 +38,7 @@ func TestRequestObservabilityPreservesRequestIDAndLogs(t *testing.T) {
 
 func TestRequestObservabilityRecoversPanic(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
-	handler := RequestObservability(logger, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
+	handler := RequestObservability(logger, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panic", nil))
 	if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "internal server error") {

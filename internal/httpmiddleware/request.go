@@ -15,6 +15,12 @@ import (
 
 type requestIDKey struct{}
 
+type HTTPMetrics interface {
+	BeginRequest()
+	EndRequest(method, route string, status int, duration time.Duration)
+	RecordPanic()
+}
+
 func RequestID(ctx context.Context) string {
 	value, _ := ctx.Value(requestIDKey{}).(string)
 	return value
@@ -52,9 +58,12 @@ func (w *responseRecorder) Flush() {
 
 func (w *responseRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func RequestObservability(logger *slog.Logger, next http.Handler) http.Handler {
+func RequestObservability(logger *slog.Logger, metrics HTTPMetrics, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
+		if metrics != nil {
+			metrics.BeginRequest()
+		}
 		requestID := validRequestID(r.Header.Get("X-Request-ID"))
 		if requestID == "" {
 			requestID = newRequestID()
@@ -64,6 +73,9 @@ func RequestObservability(logger *slog.Logger, next http.Handler) http.Handler {
 		recorder := &responseRecorder{ResponseWriter: w}
 		defer func() {
 			if recovered := recover(); recovered != nil {
+				if metrics != nil {
+					metrics.RecordPanic()
+				}
 				logger.ErrorContext(r.Context(), "panic recovered", "request_id", requestID,
 					"method", r.Method, "path", r.URL.Path, "panic", recovered, "stack", string(debug.Stack()))
 				if recorder.status == 0 {
@@ -73,6 +85,9 @@ func RequestObservability(logger *slog.Logger, next http.Handler) http.Handler {
 			status := recorder.status
 			if status == 0 {
 				status = http.StatusOK
+			}
+			if metrics != nil {
+				metrics.EndRequest(r.Method, r.Pattern, status, time.Since(started))
 			}
 			level := slog.LevelInfo
 			if status >= 500 {
