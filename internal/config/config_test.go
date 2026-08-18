@@ -51,3 +51,26 @@ func TestLoadRequiresSecureProductionTransport(t *testing.T) {
 		t.Fatalf("expected secure production validation error, got %v", err)
 	}
 }
+
+func TestLoadValidatesTracingConfiguration(t *testing.T) {
+	validTestEnv(t)
+	t.Setenv("OTEL_TRACE_SAMPLE_RATIO", "1.5")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OTEL_TRACE_SAMPLE_RATIO") {
+		t.Fatalf("expected trace ratio validation error, got %v", err)
+	}
+
+	t.Setenv("OTEL_TRACE_SAMPLE_RATIO", "0.25")
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OTEL_EXPORTER_OTLP_ENDPOINT") {
+		t.Fatalf("expected missing trace endpoint error, got %v", err)
+	}
+
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.example.com")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TracingEnabled || cfg.TracingSampleRatio != 0.25 {
+		t.Fatalf("unexpected tracing configuration: %#v", cfg)
+	}
+}

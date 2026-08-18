@@ -15,6 +15,9 @@ type Config struct {
 	LogLevel              string
 	MetricsEnabled        bool
 	MetricsToken          string
+	TracingEnabled        bool
+	TracingServiceName    string
+	TracingSampleRatio    float64
 	HTTPAddr              string
 	HTTPReadHeaderTimeout time.Duration
 	HTTPReadTimeout       time.Duration
@@ -55,7 +58,11 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY", "METRICS_ENABLED"); err != nil {
+	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY", "METRICS_ENABLED", "OTEL_TRACING_ENABLED"); err != nil {
+		return Config{}, err
+	}
+	traceRatio, err := envFloat("OTEL_TRACE_SAMPLE_RATIO", 0.1)
+	if err != nil {
 		return Config{}, err
 	}
 	readHeaderTimeout, err := envDuration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second)
@@ -87,6 +94,9 @@ func Load() (Config, error) {
 		LogLevel:              strings.ToLower(env("LOG_LEVEL", "info")),
 		MetricsEnabled:        envBool("METRICS_ENABLED", true),
 		MetricsToken:          os.Getenv("METRICS_TOKEN"),
+		TracingEnabled:        envBool("OTEL_TRACING_ENABLED", false),
+		TracingServiceName:    env("OTEL_SERVICE_NAME", "cinema-api"),
+		TracingSampleRatio:    traceRatio,
 		HTTPAddr:              env("HTTP_ADDR", ":8080"),
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPReadTimeout:       readTimeout,
@@ -130,6 +140,12 @@ func Load() (Config, error) {
 	}
 	if c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warn" && c.LogLevel != "error" {
 		return Config{}, fmt.Errorf("LOG_LEVEL must be debug, info, warn, or error")
+	}
+	if c.TracingSampleRatio < 0 || c.TracingSampleRatio > 1 {
+		return Config{}, fmt.Errorf("OTEL_TRACE_SAMPLE_RATIO must be between 0 and 1")
+	}
+	if c.TracingEnabled && strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) == "" && strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")) == "" {
+		return Config{}, fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is required when tracing is enabled")
 	}
 	if _, _, err := net.SplitHostPort(c.HTTPAddr); err != nil {
 		return Config{}, fmt.Errorf("HTTP_ADDR must contain a valid host and port: %w", err)
@@ -257,4 +273,16 @@ func validateBoolEnvs(keys ...string) error {
 		}
 	}
 	return nil
+}
+
+func envFloat(key string, fallback float64) (float64, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number: %w", key, err)
+	}
+	return parsed, nil
 }

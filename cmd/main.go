@@ -37,6 +37,19 @@ func main() {
 	slog.SetDefault(logger)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	shutdownTracing, err := observability.ConfigureTracing(ctx, observability.TracingConfig{Enabled: cfg.TracingEnabled,
+		ServiceName: cfg.TracingServiceName, Environment: cfg.Environment, SampleRatio: cfg.TracingSampleRatio})
+	if err != nil {
+		logger.Error("configure tracing", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer flushCancel()
+		if err := shutdownTracing(flushCtx); err != nil {
+			logger.Error("flush tracing", "error", err)
+		}
+	}()
 	db, err := database.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("open database", "error", err)
@@ -183,7 +196,8 @@ func main() {
 		os.Exit(1)
 	}
 	observed := httpmiddleware.RequestObservability(logger, metrics, secured)
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: observed, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+	traced := observability.TraceHTTP(observed)
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: traced, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		ReadTimeout: cfg.HTTPReadTimeout, WriteTimeout: cfg.HTTPWriteTimeout, IdleTimeout: cfg.HTTPIdleTimeout, MaxHeaderBytes: 1 << 20}
 	go func() {
 		logger.Info("cinema API listening", "address", cfg.HTTPAddr, "environment", cfg.Environment)

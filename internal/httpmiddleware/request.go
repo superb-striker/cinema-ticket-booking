@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/superb-striker/cinema/internal/utils"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type requestIDKey struct{}
@@ -89,17 +92,30 @@ func RequestObservability(logger *slog.Logger, metrics HTTPMetrics, next http.Ha
 			if metrics != nil {
 				metrics.EndRequest(r.Method, r.Pattern, status, time.Since(started))
 			}
+			span := trace.SpanFromContext(r.Context())
+			if span.IsRecording() {
+				span.SetName(strings.TrimSpace(r.Method + " " + r.Pattern))
+				span.SetAttributes(attribute.String("http.route", r.Pattern), attribute.Int("http.response.status_code", status), attribute.String("request.id", requestID))
+				if status >= 500 {
+					span.SetStatus(codes.Error, http.StatusText(status))
+				}
+			}
 			level := slog.LevelInfo
 			if status >= 500 {
 				level = slog.LevelError
 			} else if status >= 400 {
 				level = slog.LevelWarn
 			}
-			logger.LogAttrs(r.Context(), level, "http request",
+			attrs := []slog.Attr{
 				slog.String("request_id", requestID), slog.String("method", r.Method),
 				slog.String("path", r.URL.Path), slog.Int("status", status),
 				slog.Int("response_bytes", recorder.bytes), slog.Duration("duration", time.Since(started)),
-				slog.String("remote_addr", r.RemoteAddr), slog.String("user_agent", r.UserAgent()))
+				slog.String("remote_addr", r.RemoteAddr), slog.String("user_agent", r.UserAgent())}
+			spanContext := span.SpanContext()
+			if spanContext.IsValid() {
+				attrs = append(attrs, slog.String("trace_id", spanContext.TraceID().String()), slog.String("span_id", spanContext.SpanID().String()))
+			}
+			logger.LogAttrs(r.Context(), level, "http request", attrs...)
 		}()
 		next.ServeHTTP(recorder, r)
 	})
