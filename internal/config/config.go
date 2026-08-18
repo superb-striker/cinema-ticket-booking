@@ -31,7 +31,16 @@ type Config struct {
 	HSTSMaxAge            time.Duration
 	DatabaseURL           string
 	RedisAddr             string
+	RedisUsername         string
 	RedisPassword         string
+	RedisDB               int
+	RedisTLSEnabled       bool
+	RedisTLSServerName    string
+	RedisTLSCAFile        string
+	RedisTLSCertFile      string
+	RedisTLSKeyFile       string
+	RedisPoolSize         int
+	RedisMinIdleConns     int
 	CookieSecure          bool
 	SessionTTL            time.Duration
 	HoldTTL               time.Duration
@@ -58,10 +67,22 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY", "METRICS_ENABLED", "OTEL_TRACING_ENABLED"); err != nil {
+	if err := validateBoolEnvs("COOKIE_SECURE", "REQUIRE_HTTPS", "NOTIFICATION_LOG_ONLY", "METRICS_ENABLED", "OTEL_TRACING_ENABLED", "REDIS_TLS_ENABLED"); err != nil {
 		return Config{}, err
 	}
 	traceRatio, err := envFloat("OTEL_TRACE_SAMPLE_RATIO", 0.1)
+	if err != nil {
+		return Config{}, err
+	}
+	redisDB, err := envInt("REDIS_DB", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	redisPoolSize, err := envInt("REDIS_POOL_SIZE", 20)
+	if err != nil {
+		return Config{}, err
+	}
+	redisMinIdleConns, err := envInt("REDIS_MIN_IDLE_CONNS", 2)
 	if err != nil {
 		return Config{}, err
 	}
@@ -110,7 +131,16 @@ func Load() (Config, error) {
 		HSTSMaxAge:            hstsMaxAge,
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
 		RedisAddr:             env("REDIS_ADDR", "localhost:6379"),
+		RedisUsername:         os.Getenv("REDIS_USERNAME"),
 		RedisPassword:         os.Getenv("REDIS_PASSWORD"),
+		RedisDB:               redisDB,
+		RedisTLSEnabled:       envBool("REDIS_TLS_ENABLED", false),
+		RedisTLSServerName:    os.Getenv("REDIS_TLS_SERVER_NAME"),
+		RedisTLSCAFile:        os.Getenv("REDIS_TLS_CA_FILE"),
+		RedisTLSCertFile:      os.Getenv("REDIS_TLS_CERT_FILE"),
+		RedisTLSKeyFile:       os.Getenv("REDIS_TLS_KEY_FILE"),
+		RedisPoolSize:         redisPoolSize,
+		RedisMinIdleConns:     redisMinIdleConns,
 		CookieSecure:          envBool("COOKIE_SECURE", true),
 		SessionTTL:            30 * 24 * time.Hour,
 		HoldTTL:               10 * time.Minute,
@@ -146,6 +176,12 @@ func Load() (Config, error) {
 	}
 	if c.TracingEnabled && strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) == "" && strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")) == "" {
 		return Config{}, fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is required when tracing is enabled")
+	}
+	if c.RedisDB < 0 || c.RedisPoolSize <= 0 || c.RedisMinIdleConns < 0 || c.RedisMinIdleConns > c.RedisPoolSize {
+		return Config{}, fmt.Errorf("REDIS_DB must be non-negative and Redis pool sizes must be valid")
+	}
+	if (c.RedisTLSCertFile == "") != (c.RedisTLSKeyFile == "") {
+		return Config{}, fmt.Errorf("REDIS_TLS_CERT_FILE and REDIS_TLS_KEY_FILE must be configured together")
 	}
 	if _, _, err := net.SplitHostPort(c.HTTPAddr); err != nil {
 		return Config{}, fmt.Errorf("HTTP_ADDR must contain a valid host and port: %w", err)
@@ -208,6 +244,9 @@ func Load() (Config, error) {
 		}
 		if c.MetricsEnabled && len(c.MetricsToken) < 24 {
 			return Config{}, fmt.Errorf("production METRICS_TOKEN must contain at least 24 characters when metrics are enabled")
+		}
+		if len(c.RedisPassword) < 24 || !c.RedisTLSEnabled {
+			return Config{}, fmt.Errorf("production Redis requires TLS and a password of at least 24 characters")
 		}
 		if strings.HasPrefix(c.RazorpayKeyID, "rzp_test_") {
 			return Config{}, fmt.Errorf("Razorpay test credentials are not allowed in production")
@@ -283,6 +322,18 @@ func envFloat(key string, fallback float64) (float64, error) {
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be a number: %w", key, err)
+	}
+	return parsed, nil
+}
+
+func envInt(key string, fallback int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
 	return parsed, nil
 }

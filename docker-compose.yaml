@@ -19,11 +19,15 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-cinema-redis-local-only}", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "900", "1", "--save", "300", "10", "--maxmemory-policy", "noeviction"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-cinema-redis-local-only}
     ports:
       - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping | grep PONG"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -32,7 +36,9 @@ services:
     profiles: ["debug"]
     image: ghcr.io/joeferner/redis-commander:latest
     environment:
-      REDIS_HOSTS: local:redis:6379
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-cinema-redis-local-only}
+      HTTP_USER: ${REDIS_COMMANDER_USER:-admin}
+      HTTP_PASSWORD: ${REDIS_COMMANDER_PASSWORD:-change-me-before-use}
     ports:
       - "127.0.0.1:8081:8081"
     depends_on: [redis]
@@ -53,6 +59,7 @@ services:
       HTTP_ADDR: :8080
       DATABASE_URL: postgres://cinema:cinema-local-only@postgres:5432/cinema?sslmode=disable
       REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-cinema-redis-local-only}
       COOKIE_SECURE: "false"
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_replace_me}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-replace_me}
@@ -82,3 +89,4 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:

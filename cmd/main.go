@@ -56,7 +56,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	rdb, err := redis.NewClientWithPassword(cfg.RedisAddr, cfg.RedisPassword)
+	rdb, err := redis.Open(redis.Config{Addr: cfg.RedisAddr, Username: cfg.RedisUsername, Password: cfg.RedisPassword,
+		DB: cfg.RedisDB, TLSEnabled: cfg.RedisTLSEnabled, TLSServerName: cfg.RedisTLSServerName,
+		TLSCAFile: cfg.RedisTLSCAFile, TLSCertFile: cfg.RedisTLSCertFile, TLSKeyFile: cfg.RedisTLSKeyFile,
+		PoolSize: cfg.RedisPoolSize, MinIdleConns: cfg.RedisMinIdleConns})
 	if err != nil {
 		logger.Error("open redis", "error", err)
 		os.Exit(1)

@@ -74,3 +74,18 @@ func TestLoadValidatesTracingConfiguration(t *testing.T) {
 		t.Fatalf("unexpected tracing configuration: %#v", cfg)
 	}
 }
+
+func TestLoadValidatesRedisPoolAndTLSKeyPair(t *testing.T) {
+	validTestEnv(t)
+	t.Setenv("REDIS_POOL_SIZE", "2")
+	t.Setenv("REDIS_MIN_IDLE_CONNS", "3")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "pool sizes") {
+		t.Fatalf("expected Redis pool validation error, got %v", err)
+	}
+
+	t.Setenv("REDIS_MIN_IDLE_CONNS", "1")
+	t.Setenv("REDIS_TLS_CERT_FILE", "/run/secrets/redis.crt")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REDIS_TLS_CERT_FILE") {
+		t.Fatalf("expected Redis TLS key-pair error, got %v", err)
+	}
+}
