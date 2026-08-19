@@ -1,4 +1,10 @@
 .git
+.github
 .env
-*.md
-docker-compose.yaml
+.env.*
+!.env.example
+deploy
+docs
+coverage.out
+*.log
+tmp
