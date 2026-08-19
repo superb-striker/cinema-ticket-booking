@@ -77,7 +77,7 @@ func redisTLSConfig(config Config) (*tls.Config, error) {
 			roots = x509.NewCertPool()
 		}
 		if !roots.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("Redis CA file contains no valid certificates")
+			return nil, fmt.Errorf("redis CA file contains no valid certificates")
 		}
 		tlsConfig.RootCAs = roots
 	}

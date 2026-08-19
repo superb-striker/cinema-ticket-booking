@@ -249,7 +249,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("production Redis requires TLS and a password of at least 24 characters")
 		}
 		if strings.HasPrefix(c.RazorpayKeyID, "rzp_test_") {
-			return Config{}, fmt.Errorf("Razorpay test credentials are not allowed in production")
+			return Config{}, fmt.Errorf("razorpay test credentials are not allowed in production")
 		}
 		for _, value := range []string{c.RazorpayKeyID, c.RazorpayKeySecret, c.RazorpayWebhookSecret,
 			c.TicketSigningSecret, c.ScannerAPIKey, c.VerificationSecret} {
