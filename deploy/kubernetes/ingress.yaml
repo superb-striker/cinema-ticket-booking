@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cinema-api
+  namespace: cinema
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [cinema.example.com]
+      secretName: cinema-tls
+  rules:
+    - host: cinema.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cinema-api
+                port:
+                  name: http
