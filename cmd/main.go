@@ -190,10 +190,13 @@ func main() {
 	if cfg.MetricsEnabled {
 		mux.Handle("GET /metrics", metrics.Handler(cfg.MetricsToken))
 	}
+	mux.Handle("/api", httpmiddleware.UnsupportedAPIVersion("v1"))
+	mux.Handle("/api/", httpmiddleware.UnsupportedAPIVersion("v1"))
 	mux.Handle("GET /", http.FileServer(http.Dir("static")))
 
+	versioned := httpmiddleware.APIVersion("v1", mux)
 	secured, err := httpmiddleware.Security(httpmiddleware.SecurityConfig{RequireHTTPS: cfg.RequireHTTPS,
-		AllowedOrigins: cfg.CORSAllowedOrigins, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, HSTSMaxAge: cfg.HSTSMaxAge}, mux)
+		AllowedOrigins: cfg.CORSAllowedOrigins, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs, HSTSMaxAge: cfg.HSTSMaxAge}, versioned)
 	if err != nil {
 		logger.Error("configure HTTP security", "error", err)
 		os.Exit(1)
