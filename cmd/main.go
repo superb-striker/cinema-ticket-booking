@@ -192,6 +192,9 @@ func main() {
 	}
 	mux.Handle("/api", httpmiddleware.UnsupportedAPIVersion("v1"))
 	mux.Handle("/api/", httpmiddleware.UnsupportedAPIVersion("v1"))
+	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/api-docs.html", http.StatusMovedPermanently)
+	})
 	mux.Handle("GET /", http.FileServer(http.Dir("static")))
 
 	versioned := httpmiddleware.APIVersion("v1", mux)

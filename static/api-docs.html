@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Cinema Booking HTTP API documentation" />
+    <title>Cinema Booking API</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/api-docs.css" />
+    <script src="/api-docs.js" defer></script>
+  </head>
+  <body>
+    <main class="docs-shell">
+      <header class="docs-header">
+        <div>
+          <p class="eyebrow">Developer documentation</p>
+          <h1 id="apiTitle">Cinema Booking API</h1>
+          <p id="apiDescription" class="muted">Loading the versioned API contract…</p>
+        </div>
+        <nav aria-label="Documentation links">
+          <a class="button" href="/openapi.yaml" download>Download OpenAPI</a>
+          <a class="button secondary" href="/">Customer site</a>
+        </nav>
+      </header>
+      <section class="docs-controls" aria-label="Filter operations">
+        <label for="operationSearch">Search endpoints</label>
+        <input id="operationSearch" type="search" placeholder="Path, method, tag, or summary" autocomplete="off" />
+        <p id="operationCount" class="muted" aria-live="polite"></p>
+      </section>
+      <div id="docsError" class="error hidden" role="alert"></div>
+      <section id="operations" aria-label="API operations"></section>
+    </main>
+  </body>
+</html>

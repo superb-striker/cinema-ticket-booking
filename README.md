@@ -62,6 +62,8 @@ Registration and login are limited per client IP. Holds, checkout, and payment v
 
 ## API flow
 
+Interactive, searchable API documentation is served at `/docs`, and the OpenAPI 3.1 contract is available at `/openapi.yaml`. All public application contracts use the `/api/v1` major-version prefix; see `docs/api-versioning.md` for compatibility and deprecation policy.
+
 1. `POST /api/v1/auth/register` or `/login` with `email` and `password`.
 2. `GET /api/v1/screenings`.
 3. `GET /api/v1/screenings/{screeningID}/seats`.
@@ -72,11 +74,15 @@ Registration and login are limited per client IP. Holds, checkout, and payment v
 8. Poll `GET /api/v1/orders/{orderID}` until a signed webhook or Razorpay API reconciliation changes the order to `confirmed`.
 9. Read `GET /api/v1/bookings`, download `GET /api/v1/bookings/{orderID}/ticket`, or request cancellation at `POST /api/v1/bookings/{orderID}/cancel`.
 
-## Required production work
+## Production deployment
 
-- Put the service behind HTTPS and keep `COOKIE_SECURE=true`.
-- Store secrets in a managed secret store and use managed PostgreSQL/Redis with private networking.
-- Add cinema staff identities and role-based access so scanner credentials can be rotated per device rather than shared at cinema level.
-- Add structured observability and alerts for failed refunds, reconciliation errors, and queue latency.
-- Configure automated PostgreSQL backups and restore drills.
-- Pin container images by digest in deployment manifests.
+The service validates production configuration, enforces HTTPS/security headers and an explicit CORS policy, drains requests on shutdown, and exposes live, ready, authenticated metrics, and optional OTLP tracing endpoints. The production container is digest-pinned, distroless, and non-root. Kubernetes and hardened Compose definitions are included.
+
+Before deployment, inject an immutable application image digest and secrets from the target environment, configure managed PostgreSQL/Redis and notification/payment providers, and follow:
+
+- `docs/production-container.md` for the image and Compose runtime.
+- `docs/deployment.md` for Kubernetes release and rollback.
+- `docs/database-operations.md` for migrations, backups, PITR, and restore drills.
+- `docs/redis-operations.md` for Redis TLS, persistence, monitoring, and recovery.
+
+The shared cinema scanner key remains a deployment-level credential. For a larger staff fleet, issue per-device or per-staff identities through an identity provider so access can be revoked and audited independently.

@@ -37,6 +37,8 @@ jobs:
         run: go test -race ./...
       - name: Staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2 ./...
+      - name: Validate OpenAPI contract
+        run: npx --yes @redocly/cli@2.64.1 lint static/openapi.yaml
 
   vulnerabilities:
     name: Go vulnerability scan

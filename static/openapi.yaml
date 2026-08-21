@@ -1,0 +1,266 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cinema Booking API",
+    "version": "1.0.0",
+    "description": "Versioned API for cinema discovery, seat holds, Razorpay checkout, tickets, customer support, and cinema administration. Monetary values are integer paise unless stated otherwise."
+  },
+  "servers": [{"url": "/", "description": "Current origin"}],
+  "security": [],
+  "tags": [
+    {"name": "Authentication", "description": "Accounts, sessions, recovery, ownership verification, and social login."},
+    {"name": "Catalog", "description": "Customer-facing screening discovery and seat availability."},
+    {"name": "Bookings", "description": "Seat holds, checkout, history, cancellation, and order state."},
+    {"name": "Tickets", "description": "Downloadable tickets and single-admission staff validation."},
+    {"name": "Payments", "description": "Razorpay callback and webhook integration."},
+    {"name": "Administration", "description": "Role-protected cinema catalog, layout, pricing, and promotion management."},
+    {"name": "Support", "description": "Booking lookup, notes, cancellation, and refund tooling."},
+    {"name": "Reports", "description": "Sales, occupancy, payment-failure, and revenue reporting."},
+    {"name": "Operations", "description": "Health probes and authenticated telemetry."}
+  ],
+  "paths": {
+    "/api/v1/client-config": {
+      "get": {"tags":["Authentication"],"summary":"Read public client capabilities","operationId":"getClientConfig","responses":{"200":{"description":"Enabled login capabilities","content":{"application/json":{"schema":{"type":"object","properties":{"google_login":{"type":"boolean"}},"required":["google_login"]}}}}}}
+    },
+    "/api/v1/auth/register": {
+      "post": {"tags":["Authentication"],"summary":"Create an account and session","operationId":"register","requestBody":{"$ref":"#/components/requestBodies/Credentials"},"responses":{"201":{"$ref":"#/components/responses/User"},"400":{"$ref":"#/components/responses/BadRequest"},"409":{"$ref":"#/components/responses/Conflict"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/login": {
+      "post": {"tags":["Authentication"],"summary":"Authenticate with email and password","operationId":"login","requestBody":{"$ref":"#/components/requestBodies/Credentials"},"responses":{"200":{"$ref":"#/components/responses/User"},"401":{"$ref":"#/components/responses/Unauthorized"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/logout": {
+      "post": {"tags":["Authentication"],"summary":"Destroy the current session","operationId":"logout","responses":{"204":{"$ref":"#/components/responses/NoContent"}}}
+    },
+    "/api/v1/auth/me": {
+      "get": {"tags":["Authentication"],"summary":"Read the current account","operationId":"getCurrentUser","security":[{"cookieAuth":[]}],"responses":{"200":{"$ref":"#/components/responses/User"},"401":{"$ref":"#/components/responses/Unauthorized"}}}
+    },
+    "/api/v1/auth/profile": {
+      "patch": {"tags":["Authentication"],"summary":"Update the current phone number","operationId":"updateProfile","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"phone":{"type":"string","maxLength":20}},"required":["phone"],"additionalProperties":false}}}},"responses":{"200":{"$ref":"#/components/responses/User"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"}}}
+    },
+    "/api/v1/auth/password-reset/request": {
+      "post": {"tags":["Authentication"],"summary":"Request a password reset without account disclosure","operationId":"requestPasswordReset","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"email":{"type":"string","format":"email"}},"required":["email"],"additionalProperties":false}}}},"responses":{"202":{"$ref":"#/components/responses/AcceptedMessage"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/password-reset/confirm": {
+      "post": {"tags":["Authentication"],"summary":"Set a password using a reset token","operationId":"confirmPasswordReset","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"token":{"type":"string"},"password":{"type":"string","minLength":12,"maxLength":72}},"required":["token","password"],"additionalProperties":false}}}},"responses":{"204":{"$ref":"#/components/responses/NoContent"},"400":{"$ref":"#/components/responses/BadRequest"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/email-verification/request": {
+      "post": {"tags":["Authentication"],"summary":"Send an email verification link","operationId":"requestEmailVerification","security":[{"cookieAuth":[]}],"responses":{"202":{"$ref":"#/components/responses/AcceptedMessage"},"401":{"$ref":"#/components/responses/Unauthorized"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/email-verification/confirm": {
+      "post": {"tags":["Authentication"],"summary":"Verify email ownership","operationId":"confirmEmailVerification","requestBody":{"$ref":"#/components/requestBodies/Token"},"responses":{"204":{"$ref":"#/components/responses/NoContent"},"400":{"$ref":"#/components/responses/BadRequest"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/phone-verification/request": {
+      "post": {"tags":["Authentication"],"summary":"Send a phone verification OTP","operationId":"requestPhoneVerification","security":[{"cookieAuth":[]}],"responses":{"202":{"$ref":"#/components/responses/AcceptedMessage"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/phone-verification/confirm": {
+      "post": {"tags":["Authentication"],"summary":"Verify phone ownership with an OTP","operationId":"confirmPhoneVerification","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"code":{"type":"string","pattern":"^[0-9]{6}$"}},"required":["code"],"additionalProperties":false}}}},"responses":{"204":{"$ref":"#/components/responses/NoContent"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/auth/google": {
+      "get": {"tags":["Authentication"],"summary":"Start Google OpenID Connect login","operationId":"startGoogleLogin","responses":{"302":{"description":"Redirect to Google authorization"},"404":{"$ref":"#/components/responses/NotFound"}}}
+    },
+    "/api/v1/auth/google/callback": {
+      "get": {"tags":["Authentication"],"summary":"Complete Google OpenID Connect login","operationId":"completeGoogleLogin","parameters":[{"name":"state","in":"query","required":true,"schema":{"type":"string"}},{"name":"code","in":"query","required":true,"schema":{"type":"string"}}],"responses":{"302":{"description":"Redirect to the application with a session or OAuth error"}}}
+    },
+    "/api/v1/screenings": {
+      "get": {"tags":["Catalog"],"summary":"Search upcoming screenings","operationId":"listScreenings","parameters":[{"name":"q","in":"query","schema":{"type":"string"}},{"name":"cinema_id","in":"query","schema":{"type":"string","format":"uuid"}},{"name":"city","in":"query","schema":{"type":"string"}},{"name":"date","in":"query","schema":{"type":"string","format":"date"}},{"name":"language","in":"query","schema":{"type":"string"}},{"name":"format","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Matching screenings","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Screening"}}}}},"400":{"$ref":"#/components/responses/BadRequest"}}}
+    },
+    "/api/v1/screenings/{screeningID}/seats": {
+      "parameters":[{"$ref":"#/components/parameters/ScreeningID"}],
+      "get": {"tags":["Catalog"],"summary":"List seats and live availability","operationId":"listScreeningSeats","responses":{"200":{"description":"Seat inventory","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Seat"}}}}},"404":{"$ref":"#/components/responses/NotFound"}}}
+    },
+    "/api/v1/screenings/{screeningID}/seat-events": {
+      "parameters":[{"$ref":"#/components/parameters/ScreeningID"}],
+      "get": {"tags":["Catalog"],"summary":"Stream seat inventory changes over SSE","description":"Emits named `seats` events whose data is a JSON array of Seat objects and periodic keepalive comments.","operationId":"streamSeatEvents","responses":{"200":{"description":"Server-sent event stream","content":{"text/event-stream":{"schema":{"type":"string"}}}},"404":{"$ref":"#/components/responses/NotFound"}}}
+    },
+    "/api/v1/screenings/{screeningID}/holds": {
+      "parameters":[{"$ref":"#/components/parameters/ScreeningID"}],
+      "post": {"tags":["Bookings"],"summary":"Atomically hold one or more seats","operationId":"createSeatHold","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"seat_ids":{"type":"array","minItems":1,"maxItems":10,"uniqueItems":true,"items":{"type":"string"}}},"required":["seat_ids"],"additionalProperties":false}}}},"responses":{"201":{"description":"Expiring hold","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Hold"}}}},"401":{"$ref":"#/components/responses/Unauthorized"},"409":{"$ref":"#/components/responses/Conflict"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/screenings/{screeningID}/holds/{holdID}/checkout": {
+      "parameters":[{"$ref":"#/components/parameters/ScreeningID"},{"$ref":"#/components/parameters/HoldID"},{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","minLength":8,"maxLength":128}}],
+      "post": {"tags":["Bookings","Payments"],"summary":"Create a local and Razorpay order","operationId":"checkoutHold","security":[{"cookieAuth":[]}],"requestBody":{"required":false,"content":{"application/json":{"schema":{"type":"object","properties":{"coupon_code":{"type":"string","maxLength":64}},"additionalProperties":false}}}},"responses":{"201":{"description":"Order and public Razorpay checkout key","content":{"application/json":{"schema":{"type":"object","properties":{"order":{"$ref":"#/components/schemas/Order"},"checkout_key":{"type":"string"}},"required":["order","checkout_key"]}}}},"401":{"$ref":"#/components/responses/Unauthorized"},"404":{"$ref":"#/components/responses/NotFound"},"409":{"$ref":"#/components/responses/Conflict"},"422":{"$ref":"#/components/responses/Unprocessable"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/orders/{orderID}": {
+      "parameters":[{"$ref":"#/components/parameters/OrderID"}],
+      "get": {"tags":["Bookings"],"summary":"Read the current user's order","operationId":"getOrder","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Order","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Order"}}}},"401":{"$ref":"#/components/responses/Unauthorized"},"404":{"$ref":"#/components/responses/NotFound"}}}
+    },
+    "/api/v1/orders/{orderID}/verify-payment": {
+      "parameters":[{"$ref":"#/components/parameters/OrderID"}],
+      "post": {"tags":["Payments"],"summary":"Verify the signed Razorpay browser callback","description":"Authenticates the callback but does not confirm inventory; capture webhook or reconciliation confirms the order.","operationId":"verifyPaymentCallback","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PaymentVerification"}}}},"responses":{"202":{"description":"Signature accepted; confirmation is asynchronous"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/bookings": {
+      "get": {"tags":["Bookings"],"summary":"List the current user's booking history","operationId":"listBookings","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Recent bookings","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Booking"}}}}},"401":{"$ref":"#/components/responses/Unauthorized"}}}
+    },
+    "/api/v1/bookings/{orderID}/cancel": {
+      "parameters":[{"$ref":"#/components/parameters/OrderID"}],
+      "post": {"tags":["Bookings"],"summary":"Cancel under the booking's policy snapshot","operationId":"cancelBooking","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Cancellation"},"responses":{"202":{"description":"Cancellation accepted and eligible refund queued","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Booking"}}}},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"},"409":{"$ref":"#/components/responses/Conflict"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/bookings/{orderID}/ticket": {
+      "parameters":[{"$ref":"#/components/parameters/OrderID"}],
+      "get": {"tags":["Tickets"],"summary":"Download the confirmed booking ticket","operationId":"downloadTicket","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Self-contained printable HTML ticket","headers":{"Content-Disposition":{"schema":{"type":"string"}}},"content":{"text/html":{"schema":{"type":"string"}}}},"401":{"$ref":"#/components/responses/Unauthorized"},"404":{"$ref":"#/components/responses/NotFound"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/tickets/validate": {
+      "post": {"tags":["Tickets"],"summary":"Validate and atomically admit a ticket","operationId":"validateTicket","security":[{"scannerKey":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}}}},"responses":{"200":{"description":"Ticket admitted","content":{"application/json":{"schema":{"$ref":"#/components/schemas/TicketValidation"}}}},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"},"409":{"description":"Ticket was already admitted"},"422":{"$ref":"#/components/responses/Unprocessable"},"429":{"$ref":"#/components/responses/RateLimited"}}}
+    },
+    "/api/v1/webhooks/razorpay": {
+      "post": {"tags":["Payments"],"summary":"Process an authenticated Razorpay payment event","operationId":"razorpayWebhook","security":[{"razorpaySignature":[]}],"parameters":[{"name":"X-Razorpay-Event-Id","in":"header","required":false,"schema":{"type":"string"}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":true}}}},"responses":{"204":{"$ref":"#/components/responses/NoContent"},"400":{"$ref":"#/components/responses/BadRequest"},"401":{"$ref":"#/components/responses/Unauthorized"}}}
+    },
+
+    "/api/v1/admin/users": {"get":{"tags":["Administration"],"summary":"Search users and roles","operationId":"adminListUsers","security":[{"cookieAuth":[]}],"parameters":[{"name":"q","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Users and assigned roles"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
+    "/api/v1/admin/users/{userID}/roles/{role}": {
+      "parameters":[{"$ref":"#/components/parameters/UserID"},{"name":"role","in":"path","required":true,"schema":{"type":"string","enum":["admin","support"]}}],
+      "put":{"tags":["Administration"],"summary":"Grant an administrative role","operationId":"adminGrantRole","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "delete":{"tags":["Administration"],"summary":"Revoke an administrative role","operationId":"adminRevokeRole","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/movies": {
+      "get":{"tags":["Administration"],"summary":"List movies","operationId":"adminListMovies","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Movies","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Movie"}}}}},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Create a movie","operationId":"adminCreateMovie","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Movie"},"responses":{"201":{"description":"Created movie","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Movie"}}}},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/movies/{movieID}": {
+      "parameters":[{"$ref":"#/components/parameters/MovieID"}],
+      "put":{"tags":["Administration"],"summary":"Replace a movie","operationId":"adminUpdateMovie","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Movie"},"responses":{"200":{"description":"Updated movie"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}},
+      "delete":{"tags":["Administration"],"summary":"Archive a movie","operationId":"adminArchiveMovie","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/cinemas": {
+      "get":{"tags":["Administration"],"summary":"List cinemas and cancellation policies","operationId":"adminListCinemas","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Cinemas","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Cinema"}}}}},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Create a cinema and cancellation policy","operationId":"adminCreateCinema","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Cinema"},"responses":{"201":{"description":"Created cinema"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/cinemas/{cinemaID}": {
+      "parameters":[{"$ref":"#/components/parameters/CinemaID"}],
+      "put":{"tags":["Administration"],"summary":"Replace a cinema and cancellation policy","operationId":"adminUpdateCinema","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Cinema"},"responses":{"200":{"description":"Updated cinema"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "delete":{"tags":["Administration"],"summary":"Archive a cinema","operationId":"adminArchiveCinema","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/auditoriums": {
+      "get":{"tags":["Administration"],"summary":"List auditoriums","operationId":"adminListAuditoriums","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Auditoriums"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Create an auditorium","operationId":"adminCreateAuditorium","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Auditorium"},"responses":{"201":{"description":"Created auditorium"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/auditoriums/{auditoriumID}": {
+      "parameters":[{"$ref":"#/components/parameters/AuditoriumID"}],
+      "put":{"tags":["Administration"],"summary":"Replace an auditorium","operationId":"adminUpdateAuditorium","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Auditorium"},"responses":{"200":{"description":"Updated auditorium"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "delete":{"tags":["Administration"],"summary":"Archive an auditorium","operationId":"adminArchiveAuditorium","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/auditoriums/{auditoriumID}/layout": {
+      "parameters":[{"$ref":"#/components/parameters/AuditoriumID"}],
+      "get":{"tags":["Administration"],"summary":"Read an auditorium seat layout","operationId":"adminGetLayout","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Seats","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/SeatInput"}}}}},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "put":{"tags":["Administration"],"summary":"Replace an auditorium seat layout","operationId":"adminReplaceLayout","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/SeatInput"}}}}},"responses":{"200":{"description":"Updated seats"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/pricing-tiers": {
+      "get":{"tags":["Administration"],"summary":"List pricing tiers","operationId":"adminListPricingTiers","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Pricing tiers"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Create a pricing tier","operationId":"adminCreatePricingTier","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/PricingTier"},"responses":{"201":{"description":"Created pricing tier"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/pricing-tiers/{tierID}": {
+      "parameters":[{"$ref":"#/components/parameters/TierID"}],
+      "put":{"tags":["Administration"],"summary":"Replace a pricing tier","operationId":"adminUpdatePricingTier","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/PricingTier"},"responses":{"200":{"description":"Updated pricing tier"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "delete":{"tags":["Administration"],"summary":"Archive a pricing tier","operationId":"adminArchivePricingTier","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/shows": {
+      "get":{"tags":["Administration"],"summary":"List shows and price overrides","operationId":"adminListShows","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Shows"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Create a show and prices","operationId":"adminCreateShow","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Show"},"responses":{"201":{"description":"Created show"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/shows/{showID}": {
+      "parameters":[{"$ref":"#/components/parameters/ShowID"}],
+      "put":{"tags":["Administration"],"summary":"Replace a show and prices","operationId":"adminUpdateShow","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Show"},"responses":{"200":{"description":"Updated show"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}},
+      "delete":{"tags":["Administration"],"summary":"Cancel a show without active bookings","operationId":"adminCancelShow","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/seat-blocks": {
+      "get":{"tags":["Administration"],"summary":"List maintenance and accessibility blocks","operationId":"adminListSeatBlocks","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Seat blocks"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Block a seat globally or for a show","operationId":"adminCreateSeatBlock","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SeatBlockInput"}}}},"responses":{"201":{"description":"Created seat block"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/seat-blocks/{blockID}": {
+      "parameters":[{"$ref":"#/components/parameters/BlockID"}],
+      "delete":{"tags":["Administration"],"summary":"Release a seat block","operationId":"adminReleaseSeatBlock","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/promotions": {
+      "get":{"tags":["Administration"],"summary":"List promotions and coupons","operationId":"adminListPromotions","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Promotions"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Administration"],"summary":"Create a promotion","operationId":"adminCreatePromotion","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Promotion"},"responses":{"201":{"description":"Created promotion"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}
+    },
+    "/api/v1/admin/promotions/{promotionID}": {
+      "parameters":[{"$ref":"#/components/parameters/PromotionID"}],
+      "put":{"tags":["Administration"],"summary":"Replace a promotion","operationId":"adminUpdatePromotion","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Promotion"},"responses":{"200":{"description":"Updated promotion"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}},
+      "delete":{"tags":["Administration"],"summary":"Archive a promotion","operationId":"adminArchivePromotion","security":[{"cookieAuth":[]}],"responses":{"204":{"$ref":"#/components/responses/NoContent"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/bookings": {"get":{"tags":["Support"],"summary":"Look up bookings for customer support","operationId":"supportListBookings","security":[{"cookieAuth":[]}],"parameters":[{"name":"q","in":"query","schema":{"type":"string"}},{"name":"status","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"Matching bookings"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
+    "/api/v1/admin/bookings/{orderID}": {"parameters":[{"$ref":"#/components/parameters/OrderID"}],"get":{"tags":["Support"],"summary":"Read complete support booking details","operationId":"supportGetBooking","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Booking, payments, refunds, and policy snapshot"},"403":{"$ref":"#/components/responses/Forbidden"},"404":{"$ref":"#/components/responses/NotFound"}}}},
+    "/api/v1/admin/bookings/{orderID}/cancel": {"parameters":[{"$ref":"#/components/parameters/OrderID"}],"post":{"tags":["Support"],"summary":"Cancel a booking with an optional refund override","operationId":"supportCancelBooking","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"reason":{"type":"string","maxLength":500},"refund_percent":{"type":"integer","minimum":0,"maximum":100}},"required":["reason"],"additionalProperties":false}}}},"responses":{"202":{"description":"Cancellation and refund accepted"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}},
+    "/api/v1/admin/bookings/{orderID}/refund": {"parameters":[{"$ref":"#/components/parameters/OrderID"}],"post":{"tags":["Support"],"summary":"Queue a full support refund","operationId":"supportRefundBooking","security":[{"cookieAuth":[]}],"requestBody":{"$ref":"#/components/requestBodies/Cancellation"},"responses":{"202":{"description":"Refund queued"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"},"409":{"$ref":"#/components/responses/Conflict"}}}},
+    "/api/v1/admin/bookings/{orderID}/notes": {
+      "parameters":[{"$ref":"#/components/parameters/OrderID"}],
+      "get":{"tags":["Support"],"summary":"List internal support notes","operationId":"supportListNotes","security":[{"cookieAuth":[]}],"responses":{"200":{"description":"Internal notes"},"403":{"$ref":"#/components/responses/Forbidden"}}},
+      "post":{"tags":["Support"],"summary":"Add an internal support note","operationId":"supportCreateNote","security":[{"cookieAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"note":{"type":"string","minLength":1,"maxLength":2000}},"required":["note"],"additionalProperties":false}}}},"responses":{"201":{"description":"Created note"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}
+    },
+    "/api/v1/admin/reports/sales": {"get":{"tags":["Reports"],"summary":"Report booking sales","operationId":"reportSales","security":[{"cookieAuth":[]}],"parameters":[{"$ref":"#/components/parameters/ReportFrom"},{"$ref":"#/components/parameters/ReportTo"},{"$ref":"#/components/parameters/ReportCinema"}],"responses":{"200":{"description":"Sales aggregates"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
+    "/api/v1/admin/reports/occupancy": {"get":{"tags":["Reports"],"summary":"Report screening occupancy","operationId":"reportOccupancy","security":[{"cookieAuth":[]}],"parameters":[{"$ref":"#/components/parameters/ReportFrom"},{"$ref":"#/components/parameters/ReportTo"},{"$ref":"#/components/parameters/ReportCinema"}],"responses":{"200":{"description":"Occupancy aggregates"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
+    "/api/v1/admin/reports/payment-failures": {"get":{"tags":["Reports"],"summary":"Report payment failures","operationId":"reportPaymentFailures","security":[{"cookieAuth":[]}],"parameters":[{"$ref":"#/components/parameters/ReportFrom"},{"$ref":"#/components/parameters/ReportTo"},{"$ref":"#/components/parameters/ReportCinema"}],"responses":{"200":{"description":"Payment failure aggregates"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
+    "/api/v1/admin/reports/revenue": {"get":{"tags":["Reports"],"summary":"Report gross, discount, fee, tax, and refund revenue","operationId":"reportRevenue","security":[{"cookieAuth":[]}],"parameters":[{"$ref":"#/components/parameters/ReportFrom"},{"$ref":"#/components/parameters/ReportTo"},{"$ref":"#/components/parameters/ReportCinema"}],"responses":{"200":{"description":"Revenue aggregates"},"400":{"$ref":"#/components/responses/BadRequest"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
+    "/health/live": {"get":{"tags":["Operations"],"summary":"Check process liveness","operationId":"healthLive","responses":{"200":{"description":"Process is alive"}}}},
+    "/health/ready": {"get":{"tags":["Operations"],"summary":"Check PostgreSQL and Redis readiness","operationId":"healthReady","responses":{"200":{"description":"Dependencies are ready"},"503":{"description":"At least one dependency is unavailable"}}}},
+    "/metrics": {"get":{"tags":["Operations"],"summary":"Scrape Prometheus metrics","operationId":"metrics","security":[{"metricsBearer":[]}],"responses":{"200":{"description":"Prometheus text exposition","content":{"text/plain":{"schema":{"type":"string"}}}},"401":{"$ref":"#/components/responses/Unauthorized"}}}}
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth":{"type":"apiKey","in":"cookie","name":"cinema_session","description":"Secure HttpOnly session cookie."},
+      "scannerKey":{"type":"apiKey","in":"header","name":"X-Scanner-Key"},
+      "razorpaySignature":{"type":"apiKey","in":"header","name":"X-Razorpay-Signature"},
+      "metricsBearer":{"type":"http","scheme":"bearer"}
+    },
+    "parameters": {
+      "ScreeningID":{"name":"screeningID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "HoldID":{"name":"holdID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "OrderID":{"name":"orderID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "UserID":{"name":"userID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "MovieID":{"name":"movieID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "CinemaID":{"name":"cinemaID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "AuditoriumID":{"name":"auditoriumID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "TierID":{"name":"tierID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "ShowID":{"name":"showID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "BlockID":{"name":"blockID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "PromotionID":{"name":"promotionID","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},
+      "ReportFrom":{"name":"from","in":"query","required":true,"schema":{"type":"string","format":"date"}},
+      "ReportTo":{"name":"to","in":"query","required":true,"schema":{"type":"string","format":"date"}},
+      "ReportCinema":{"name":"cinema_id","in":"query","schema":{"type":"string","format":"uuid"}}
+    },
+    "requestBodies": {
+      "Credentials":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Credentials"}}}},
+      "Token":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"token":{"type":"string"}},"required":["token"],"additionalProperties":false}}}},
+      "Cancellation":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"reason":{"type":"string","minLength":1,"maxLength":200}},"required":["reason"],"additionalProperties":false}}}},
+      "Movie":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Movie"}}}},
+      "Cinema":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Cinema"}}}},
+      "Auditorium":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Auditorium"}}}},
+      "PricingTier":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PricingTier"}}}},
+      "Show":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ShowInput"}}}},
+      "Promotion":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PromotionInput"}}}}
+    },
+    "responses": {
+      "User":{"description":"Account and verification state","content":{"application/json":{"schema":{"$ref":"#/components/schemas/User"}}}},
+      "AcceptedMessage":{"description":"Request accepted without disclosing account state","content":{"application/json":{"schema":{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}}}},
+      "NoContent":{"description":"Successful response with no body"},
+      "BadRequest":{"description":"Malformed or invalid request","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+      "Unauthorized":{"description":"Authentication is missing or invalid","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+      "Forbidden":{"description":"The authenticated principal lacks the required role or ownership","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+      "NotFound":{"description":"Resource does not exist or is not visible","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+      "Conflict":{"description":"The request conflicts with current inventory or lifecycle state","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+      "Unprocessable":{"description":"Request is syntactically valid but cannot be applied","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},
+      "RateLimited":{"description":"Rate limit exceeded","headers":{"Retry-After":{"schema":{"type":"integer"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}
+    },
+    "schemas": {
+      "Error":{"type":"object","properties":{"error":{"type":"string"}},"required":["error"],"additionalProperties":false},
+      "Credentials":{"type":"object","properties":{"email":{"type":"string","format":"email"},"password":{"type":"string","minLength":12,"maxLength":72}},"required":["email","password"],"additionalProperties":false},
+      "User":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"email":{"type":"string","format":"email"},"phone":{"type":"string"},"email_verified":{"type":"boolean"},"phone_verified":{"type":"boolean"},"roles":{"type":"array","items":{"type":"string"}}},"required":["id","email","email_verified","phone_verified"]},
+      "Screening":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"movie_id":{"type":"string","format":"uuid"},"movie_title":{"type":"string"},"cinema_id":{"type":"string","format":"uuid"},"cinema_name":{"type":"string"},"cinema_city":{"type":"string"},"screen_id":{"type":"string","format":"uuid"},"screen_name":{"type":"string"},"format":{"type":"string"},"starts_at":{"type":"string","format":"date-time"},"sales_end_at":{"type":"string","format":"date-time"},"base_price_paise":{"type":"integer","format":"int64","minimum":0},"currency":{"type":"string","pattern":"^[A-Z]{3}$"}},"required":["id","movie_id","movie_title","cinema_id","cinema_name","screen_id","screen_name","format","starts_at","sales_end_at","base_price_paise","currency"]},
+      "Seat":{"allOf":[{"$ref":"#/components/schemas/SeatInput"},{"type":"object","properties":{"status":{"type":"string","enum":["available","held","confirmed","blocked"]}},"required":["status"]}]},
+      "SeatInput":{"type":"object","properties":{"id":{"type":"string"},"row":{"type":"string"},"number":{"type":"integer","minimum":1},"category":{"type":"string"},"accessible":{"type":"boolean"}},"required":["id","row","number","category","accessible"],"additionalProperties":false},
+      "Hold":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"screening_id":{"type":"string","format":"uuid"},"user_id":{"type":"string","format":"uuid"},"seat_ids":{"type":"array","items":{"type":"string"}},"expires_at":{"type":"string","format":"date-time"}},"required":["id","screening_id","user_id","seat_ids","expires_at"]},
+      "Order":{"type":"object","properties":{"id":{"type":"string","format":"uuid"},"screening_id":{"type":"string","format":"uuid"},"user_id":{"type":"string","format":"uuid"},"hold_id":{"type":"string","format":"uuid"},"seat_ids":{"type":"array","items":{"type":"string"}},"status":{"type":"string","enum":["payment_pending","confirmed","expired","cancelled","refund_pending","refunded","payment_failed"]},"amount_paise":{"type":"integer","format":"int64"},"subtotal_paise":{"type":"integer","format":"int64"},"convenience_fee_paise":{"type":"integer","format":"int64"},"tax_paise":{"type":"integer","format":"int64"},"discount_paise":{"type":"integer","format":"int64"},"promotion_code":{"type":"string"},"cancellation_cutoff_minutes":{"type":"integer"},"cancellation_refund_percent":{"type":"integer","minimum":0,"maximum":100},"cancellation_refund_amount_paise":{"type":"integer","format":"int64"},"currency":{"type":"string"},"provider":{"type":"string"},"provider_order_id":{"type":"string"},"provider_payment_id":{"type":"string"},"expires_at":{"type":"string","format":"date-time"}},"required":["id","screening_id","user_id","hold_id","seat_ids","status","amount_paise","subtotal_paise","convenience_fee_paise","tax_paise","discount_paise","cancellation_cutoff_minutes","cancellation_refund_percent","currency","provider","expires_at"]},
+      "Booking":{"allOf":[{"$ref":"#/components/schemas/Order"},{"type":"object","properties":{"movie_title":{"type":"string"},"cinema_name":{"type":"string"},"cinema_city":{"type":"string"},"cinema_timezone":{"type":"string"},"screen_name":{"type":"string"},"format":{"type":"string"},"starts_at":{"type":"string","format":"date-time"},"created_at":{"type":"string","format":"date-time"},"can_cancel":{"type":"boolean"}},"required":["movie_title","cinema_name","cinema_city","cinema_timezone","screen_name","format","starts_at","created_at","can_cancel"]}]},
+      "PaymentVerification":{"type":"object","properties":{"razorpay_order_id":{"type":"string"},"razorpay_payment_id":{"type":"string"},"razorpay_signature":{"type":"string"}},"required":["razorpay_order_id","razorpay_payment_id","razorpay_signature"],"additionalProperties":false},
+      "TicketValidation":{"type":"object","properties":{"valid":{"type":"boolean","const":true},"order_id":{"type":"string","format":"uuid"},"admitted_at":{"type":"string","format":"date-time"}},"required":["valid","order_id","admitted_at"]},
+      "Movie":{"type":"object","properties":{"id":{"type":"string","format":"uuid","readOnly":true},"slug":{"type":"string"},"title":{"type":"string"},"duration_minutes":{"type":"integer","minimum":1,"maximum":600},"language":{"type":"string"},"certificate":{"type":"string"},"active":{"type":"boolean"}},"required":["slug","title","duration_minutes","language","certificate"]},
+      "Cinema":{"type":"object","properties":{"id":{"type":"string","format":"uuid","readOnly":true},"name":{"type":"string"},"timezone":{"type":"string"},"address_line":{"type":"string"},"city":{"type":"string"},"region":{"type":"string"},"postal_code":{"type":"string"},"active":{"type":"boolean"},"cancellation_cutoff_minutes":{"type":"integer","minimum":0},"cancellation_refund_percent":{"type":"integer","minimum":0,"maximum":100}},"required":["name","timezone","address_line","city","region","postal_code","cancellation_cutoff_minutes","cancellation_refund_percent"]},
+      "Auditorium":{"type":"object","properties":{"id":{"type":"string","format":"uuid","readOnly":true},"cinema_id":{"type":"string","format":"uuid"},"name":{"type":"string"},"format":{"type":"string"},"active":{"type":"boolean"}},"required":["cinema_id","name","format"]},
+      "PricingTier":{"type":"object","properties":{"id":{"type":"string","format":"uuid","readOnly":true},"cinema_id":{"type":"string","format":"uuid"},"name":{"type":"string"},"seat_category":{"type":"string"},"active":{"type":"boolean"}},"required":["cinema_id","name","seat_category"]},
+      "ShowInput":{"type":"object","properties":{"movie_id":{"type":"string","format":"uuid"},"auditorium_id":{"type":"string","format":"uuid"},"starts_at":{"type":"string","format":"date-time"},"sales_end_at":{"type":"string","format":"date-time"},"base_price_paise":{"type":"integer","format":"int64","minimum":0},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"status":{"type":"string","enum":["scheduled","cancelled"]},"prices":{"type":"array","items":{"type":"object","properties":{"pricing_tier_id":{"type":"string","format":"uuid"},"price_paise":{"type":"integer","format":"int64","minimum":0}},"required":["pricing_tier_id","price_paise"]}}},"required":["movie_id","auditorium_id","starts_at","sales_end_at","base_price_paise","currency","status","prices"],"additionalProperties":false},
+      "SeatBlockInput":{"type":"object","properties":{"auditorium_id":{"type":"string","format":"uuid"},"show_id":{"type":"string","format":"uuid"},"seat_id":{"type":"string"},"block_type":{"type":"string","enum":["maintenance","accessibility"]},"reason":{"type":"string"},"expires_at":{"type":"string","format":"date-time"}},"required":["auditorium_id","seat_id","block_type","reason"],"additionalProperties":false},
+      "PromotionInput":{"type":"object","properties":{"cinema_id":{"type":"string","format":"uuid"},"code":{"type":"string"},"name":{"type":"string"},"discount_type":{"type":"string","enum":["percent","fixed"]},"discount_value":{"type":"integer","minimum":1},"minimum_subtotal_paise":{"type":"integer","minimum":0},"maximum_discount_paise":{"type":"integer","minimum":0},"starts_at":{"type":"string","format":"date-time"},"ends_at":{"type":"string","format":"date-time"},"maximum_redemptions":{"type":"integer","minimum":1},"per_customer_limit":{"type":"integer","minimum":1},"active":{"type":"boolean"}},"required":["code","name","discount_type","discount_value","minimum_subtotal_paise","starts_at","ends_at","per_customer_limit","active"],"additionalProperties":false}
+    }
+  }
+}

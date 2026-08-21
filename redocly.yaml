@@ -1,0 +1,5 @@
+extends:
+  - minimal
+rules:
+  # The two OIDC browser endpoints intentionally return redirects, not 2xx payloads.
+  operation-2xx-response: off
