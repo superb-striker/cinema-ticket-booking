@@ -31,13 +31,23 @@
   };
 
   async function startCamera() {
-    if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
-      show("Camera scanning unavailable", "Use the manual code field on this browser.", "error");
+    if (
+      !("BarcodeDetector" in window) ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      show(
+        "Camera scanning unavailable",
+        "Use the manual code field on this browser.",
+        "error",
+      );
       return;
     }
     try {
       detector = new BarcodeDetector({ formats: ["qr_code"] });
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
       $("camera").srcObject = stream;
       await $("camera").play();
       scanning = true;
@@ -47,7 +57,11 @@
       $("cameraHelp").textContent = "Point the camera at the ticket QR code.";
       scanFrame();
     } catch (error) {
-      show("Camera could not start", error.message || "Check camera permission and retry.", "error");
+      show(
+        "Camera could not start",
+        error.message || "Check camera permission and retry.",
+        "error",
+      );
       stopCamera();
     }
   }
@@ -57,7 +71,11 @@
     try {
       const codes = await detector.detect($("camera"));
       const value = codes[0]?.rawValue?.trim();
-      if (value && (!validationPending) && (value !== lastCode || Date.now() - lastScanAt > 5000)) {
+      if (
+        value &&
+        !validationPending &&
+        (value !== lastCode || Date.now() - lastScanAt > 5000)
+      ) {
         lastCode = value;
         lastScanAt = Date.now();
         $("ticketCode").value = value;
@@ -82,22 +100,37 @@
   async function validate(code) {
     const key = $("scannerKey").value.trim();
     if (!key) {
-      show("Scanner key required", "Enter the staff scanner API key before validating tickets.", "error");
+      show(
+        "Scanner key required",
+        "Enter the staff scanner API key before validating tickets.",
+        "error",
+      );
       $("scannerKey").focus();
       return;
     }
     if (!code || validationPending) return;
     validationPending = true;
-    show("Validating…", "Checking the signed ticket with the cinema server.", "");
+    show(
+      "Validating…",
+      "Checking the signed ticket with the cinema server.",
+      "",
+    );
     try {
       const response = await fetch("/api/v1/tickets/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Scanner-Key": key },
         body: JSON.stringify({ code }),
       });
-      const data = await response.json().catch(() => ({ error: "Invalid server response" }));
-      if (!response.ok) throw new Error(data.error || "Ticket validation failed");
-      show("Admission approved", `Order ${data.order_id} admitted at ${new Date(data.admitted_at).toLocaleString()}.`, "success");
+      const data = await response
+        .json()
+        .catch(() => ({ error: "Invalid server response" }));
+      if (!response.ok)
+        throw new Error(data.error || "Ticket validation failed");
+      show(
+        "Admission approved",
+        `Order ${data.order_id} admitted at ${new Date(data.admitted_at).toLocaleString()}.`,
+        "success",
+      );
       navigator.vibrate?.(100);
     } catch (error) {
       const offline = !navigator.onLine ? " The scanner is offline." : "";

@@ -20,7 +20,9 @@
         await new Promise((resolve) => setTimeout(resolve, 500));
         response = await fetch(path, options);
       } else {
-        throw new Error("Network unavailable. Check your connection and retry.");
+        throw new Error(
+          "Network unavailable. Check your connection and retry.",
+        );
       }
     }
     if (response.status === 204) return null;
@@ -57,7 +59,12 @@
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
       $("logout").classList.remove("hidden");
-	  $("adminLink").classList.toggle("hidden", !state.user.roles?.some((role) => role === "admin" || role === "support"));
+      $("adminLink").classList.toggle(
+        "hidden",
+        !state.user.roles?.some(
+          (role) => role === "admin" || role === "support",
+        ),
+      );
       $("bookings").classList.remove("hidden");
       $("phone").value = state.user.phone || "";
       renderVerification();
@@ -70,7 +77,7 @@
   function showSignedOut() {
     $("identity").textContent = "Not signed in";
     $("logout").classList.add("hidden");
-	$("adminLink").classList.add("hidden");
+    $("adminLink").classList.add("hidden");
     $("auth").classList.remove("hidden");
     $("bookings").classList.add("hidden");
   }
@@ -94,7 +101,12 @@
       $("identity").textContent = state.user.email;
       $("auth").classList.add("hidden");
       $("logout").classList.remove("hidden");
-	  $("adminLink").classList.toggle("hidden", !state.user.roles?.some((role) => role === "admin" || role === "support"));
+      $("adminLink").classList.toggle(
+        "hidden",
+        !state.user.roles?.some(
+          (role) => role === "admin" || role === "support",
+        ),
+      );
       $("bookings").classList.remove("hidden");
       $("phone").value = state.user.phone || "";
       renderVerification();
@@ -105,12 +117,16 @@
     }
   });
   const resetToken = new URLSearchParams(location.search).get("reset_token");
-  const emailVerificationToken = new URLSearchParams(location.search).get("verify_email");
+  const emailVerificationToken = new URLSearchParams(location.search).get(
+    "verify_email",
+  );
   function openReset() {
     $("resetPanel").classList.remove("hidden");
     $("resetEmail").classList.toggle("hidden", Boolean(resetToken));
     $("resetPassword").classList.toggle("hidden", !resetToken);
-    $("resetTitle").textContent = resetToken ? "Choose a new password" : "Request password reset";
+    $("resetTitle").textContent = resetToken
+      ? "Choose a new password"
+      : "Request password reset";
     (resetToken ? $("resetPassword") : $("resetEmail")).focus();
   }
   $("forgotPassword").onclick = openReset;
@@ -119,33 +135,56 @@
     event.preventDefault();
     try {
       if (resetToken) {
-        await api("/api/v1/auth/password-reset/confirm", { method: "POST", body: JSON.stringify({ token: resetToken, password: $("resetPassword").value }) });
+        await api("/api/v1/auth/password-reset/confirm", {
+          method: "POST",
+          body: JSON.stringify({
+            token: resetToken,
+            password: $("resetPassword").value,
+          }),
+        });
         history.replaceState({}, "", "/");
         message("Password updated. Sign in with your new password.", "success");
       } else {
-        const result = await api("/api/v1/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email: $("resetEmail").value }) });
+        const result = await api("/api/v1/auth/password-reset/request", {
+          method: "POST",
+          body: JSON.stringify({ email: $("resetEmail").value }),
+        });
         message(result.message, "success");
       }
       $("resetPanel").classList.add("hidden");
-    } catch (error) { message(error.message, "error"); }
+    } catch (error) {
+      message(error.message, "error");
+    }
   };
   if (resetToken) openReset();
   if (emailVerificationToken) {
-    api("/api/v1/auth/email-verification/confirm", { method: "POST", body: JSON.stringify({ token: emailVerificationToken }) })
+    api("/api/v1/auth/email-verification/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token: emailVerificationToken }),
+    })
       .then(() => {
         history.replaceState({}, "", "/");
-        message("Email address verified. Sign in to refresh your notification status.", "success");
+        message(
+          "Email address verified. Sign in to refresh your notification status.",
+          "success",
+        );
       })
       .catch((error) => message(error.message, "error"));
   }
-  if (new URLSearchParams(location.search).has("oauth_error")) message("Google sign-in could not be completed.", "error");
-  api("/api/v1/client-config").then((config) => $("googleLogin").classList.toggle("hidden", !config.google_login)).catch(() => {});
+  if (new URLSearchParams(location.search).has("oauth_error"))
+    message("Google sign-in could not be completed.", "error");
+  api("/api/v1/client-config")
+    .then((config) =>
+      $("googleLogin").classList.toggle("hidden", !config.google_login),
+    )
+    .catch(() => {});
   let screeningRequest = 0;
   async function loadScreenings() {
     const request = ++screeningRequest;
     const root = $("screenings");
     root.setAttribute("aria-busy", "true");
-    if (!root.children.length) root.innerHTML = '<p class="muted">Loading screenings…</p>';
+    if (!root.children.length)
+      root.innerHTML = '<p class="muted">Loading screenings…</p>';
     try {
       const params = new URLSearchParams();
       const filters = {
@@ -162,7 +201,8 @@
       if (request !== screeningRequest) return;
       root.innerHTML = "";
       if (!items.length) {
-        root.innerHTML = '<p class="muted">No screenings match these filters.</p>';
+        root.innerHTML =
+          '<p class="muted">No screenings match these filters.</p>';
       }
       items.forEach((item) => {
         const button = document.createElement("button");
@@ -204,19 +244,24 @@
   }
   function subscribeToSeats(screeningID) {
     if (state.seatEvents) state.seatEvents.close();
-    const source = new EventSource(`/api/v1/screenings/${screeningID}/seat-events`);
+    const source = new EventSource(
+      `/api/v1/screenings/${screeningID}/seat-events`,
+    );
     state.seatEvents = source;
     source.addEventListener("seats", (event) => {
       if (state.screening?.id !== screeningID) return;
       state.seats = JSON.parse(event.data);
       for (const id of [...state.selected]) {
-        if (state.seats.find((seat) => seat.id === id)?.status !== "available") {
+        if (
+          state.seats.find((seat) => seat.id === id)?.status !== "available"
+        ) {
           state.selected.delete(id);
         }
       }
       renderSeats();
     });
-    source.onerror = () => message("Seat updates interrupted; reconnecting…", "error");
+    source.onerror = () =>
+      message("Seat updates interrupted; reconnecting…", "error");
   }
   async function loadSeats() {
     try {
@@ -224,7 +269,11 @@
       renderSeats();
     } catch (error) {
       message(error.message, "error");
-      showRetry($("seats"), "Seat availability could not be loaded.", loadSeats);
+      showRetry(
+        $("seats"),
+        "Seat availability could not be loaded.",
+        loadSeats,
+      );
     }
   }
   function renderSeats() {
@@ -236,8 +285,14 @@
       button.className = `seat ${seat.status}`;
       button.disabled = seat.status !== "available";
       button.type = "button";
-      button.setAttribute("aria-label", `Seat ${seat.id}: ${seat.status.replaceAll("_", " ")}`);
-      button.setAttribute("aria-pressed", state.selected.has(seat.id) ? "true" : "false");
+      button.setAttribute(
+        "aria-label",
+        `Seat ${seat.id}: ${seat.status.replaceAll("_", " ")}`,
+      );
+      button.setAttribute(
+        "aria-pressed",
+        state.selected.has(seat.id) ? "true" : "false",
+      );
       if (state.selected.has(seat.id)) button.classList.add("selected");
       button.onclick = () => {
         state.selected.has(seat.id)
@@ -344,10 +399,13 @@
     if (!state.user) return;
     const root = $("bookingList");
     root.setAttribute("aria-busy", "true");
-    if (!root.children.length) root.innerHTML = '<p class="muted">Loading bookings…</p>';
+    if (!root.children.length)
+      root.innerHTML = '<p class="muted">Loading bookings…</p>';
     try {
       const bookings = await api("/api/v1/bookings");
-      root.innerHTML = bookings.length ? "" : '<p class="muted">No bookings yet.</p>';
+      root.innerHTML = bookings.length
+        ? ""
+        : '<p class="muted">No bookings yet.</p>';
       bookings.forEach((booking) => {
         const card = document.createElement("article");
         card.className = "booking-card";
@@ -362,10 +420,10 @@
           actions.append(ticket);
         }
         if (booking.can_cancel) {
-		  const policy = document.createElement("p");
-		  policy.className = "muted";
-		  policy.textContent = `Cancel at least ${formatMinutes(booking.cancellation_cutoff_minutes)} before showtime for a ${booking.cancellation_refund_percent}% refund (₹${money(Math.floor(booking.amount_paise * booking.cancellation_refund_percent / 100))}).`;
-		  card.append(policy);
+          const policy = document.createElement("p");
+          policy.className = "muted";
+          policy.textContent = `Cancel at least ${formatMinutes(booking.cancellation_cutoff_minutes)} before showtime for a ${booking.cancellation_refund_percent}% refund (₹${money(Math.floor((booking.amount_paise * booking.cancellation_refund_percent) / 100))}).`;
+          card.append(policy);
           const cancel = document.createElement("button");
           cancel.type = "button";
           cancel.textContent = "Cancel & refund";
@@ -375,65 +433,111 @@
         card.append(actions);
         root.append(card);
       });
-    } catch (error) { message(error.message, "error"); showRetry(root, "Bookings could not be loaded.", loadBookings); }
-    finally { root.setAttribute("aria-busy", "false"); }
+    } catch (error) {
+      message(error.message, "error");
+      showRetry(root, "Bookings could not be loaded.", loadBookings);
+    } finally {
+      root.setAttribute("aria-busy", "false");
+    }
   }
   async function cancelBooking(id, button) {
     const reason = prompt("Why are you cancelling this booking?");
     if (!reason?.trim()) return;
     button.disabled = true;
     try {
-      await api(`/api/v1/bookings/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason: reason.trim() }) });
-      message("Cancellation accepted. Your refund is being processed.", "success");
-      await Promise.all([loadBookings(), state.screening ? loadSeats() : Promise.resolve()]);
-    } catch (error) { message(error.message, "error"); button.disabled = false; }
+      await api(`/api/v1/bookings/${id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      message(
+        "Cancellation accepted. Your refund is being processed.",
+        "success",
+      );
+      await Promise.all([
+        loadBookings(),
+        state.screening ? loadSeats() : Promise.resolve(),
+      ]);
+    } catch (error) {
+      message(error.message, "error");
+      button.disabled = false;
+    }
   }
   $("refreshBookings").onclick = loadBookings;
   $("profileForm").onsubmit = async (event) => {
     event.preventDefault();
     try {
-      state.user = await api("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ phone: $("phone").value }) });
+      state.user = await api("/api/v1/auth/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ phone: $("phone").value }),
+      });
       renderVerification();
       message("Notification preferences saved.", "success");
-    } catch (error) { message(error.message, "error"); }
+    } catch (error) {
+      message(error.message, "error");
+    }
   };
   function renderVerification() {
     if (!state.user) return;
     $("emailVerificationStatus").textContent = state.user.email_verified
       ? `Email verified: ${state.user.email}`
       : `Email not verified: ${state.user.email}`;
-    $("sendEmailVerification").classList.toggle("hidden", state.user.email_verified);
+    $("sendEmailVerification").classList.toggle(
+      "hidden",
+      state.user.email_verified,
+    );
     $("phoneVerificationStatus").textContent = !state.user.phone
       ? "Add and save a phone number before requesting an SMS code."
       : state.user.phone_verified
         ? `Phone verified: ${state.user.phone}`
         : `Phone not verified: ${state.user.phone}`;
-    $("sendPhoneVerification").disabled = !state.user.phone || state.user.phone_verified;
-    $("phoneCode").classList.toggle("hidden", !state.user.phone || state.user.phone_verified);
-    $("confirmPhone").classList.toggle("hidden", !state.user.phone || state.user.phone_verified);
+    $("sendPhoneVerification").disabled =
+      !state.user.phone || state.user.phone_verified;
+    $("phoneCode").classList.toggle(
+      "hidden",
+      !state.user.phone || state.user.phone_verified,
+    );
+    $("confirmPhone").classList.toggle(
+      "hidden",
+      !state.user.phone || state.user.phone_verified,
+    );
   }
   $("sendEmailVerification").onclick = async () => {
     try {
-      const result = await api("/api/v1/auth/email-verification/request", { method: "POST" });
+      const result = await api("/api/v1/auth/email-verification/request", {
+        method: "POST",
+      });
       message(result.message, "success");
-    } catch (error) { message(error.message, "error"); }
+    } catch (error) {
+      message(error.message, "error");
+    }
   };
   $("sendPhoneVerification").onclick = async () => {
     try {
-      const result = await api("/api/v1/auth/phone-verification/request", { method: "POST" });
+      const result = await api("/api/v1/auth/phone-verification/request", {
+        method: "POST",
+      });
       message(result.message, "success");
       $("phoneCode").focus();
-    } catch (error) { message(error.message, "error"); }
+    } catch (error) {
+      message(error.message, "error");
+    }
   };
   $("confirmPhone").onclick = async () => {
     try {
-      await api("/api/v1/auth/phone-verification/confirm", { method: "POST", body: JSON.stringify({ code: $("phoneCode").value }) });
+      await api("/api/v1/auth/phone-verification/confirm", {
+        method: "POST",
+        body: JSON.stringify({ code: $("phoneCode").value }),
+      });
       state.user = await api("/api/v1/auth/me");
       renderVerification();
       message("Phone number verified.", "success");
-    } catch (error) { message(error.message, "error"); }
+    } catch (error) {
+      message(error.message, "error");
+    }
   };
-  function money(paise) { return (paise / 100).toFixed(2); }
+  function money(paise) {
+    return (paise / 100).toFixed(2);
+  }
   function formatMinutes(minutes) {
     if (minutes < 60) return `${minutes} minutes`;
     const hours = minutes / 60;
@@ -448,7 +552,11 @@
   function updateConnectivity() {
     const online = navigator.onLine;
     $("offline").classList.toggle("hidden", online);
-    if (online && !wasOnline) message("Connection restored. You can retry your last action.", "success");
+    if (online && !wasOnline)
+      message(
+        "Connection restored. You can retry your last action.",
+        "success",
+      );
     wasOnline = online;
   }
   addEventListener("online", updateConnectivity);
@@ -472,9 +580,14 @@
     message("Cinema Booking was installed.", "success");
   });
   if ("serviceWorker" in navigator) {
-    addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {
-      message("Offline support could not be enabled on this device.", "error");
-    }));
+    addEventListener("load", () =>
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        message(
+          "Offline support could not be enabled on this device.",
+          "error",
+        );
+      }),
+    );
   }
   Promise.all([loadIdentity(), loadScreenings()]);
 })();

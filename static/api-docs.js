@@ -15,7 +15,8 @@ function render(filter = "") {
   operationsNode.replaceChildren();
   const needle = filter.trim().toLowerCase();
   const visible = operations.filter((item) => item.search.includes(needle));
-  document.getElementById("operationCount").textContent = `${visible.length} of ${operations.length} operations`;
+  document.getElementById("operationCount").textContent =
+    `${visible.length} of ${operations.length} operations`;
   const grouped = new Map();
   for (const item of visible) {
     if (!grouped.has(item.tag)) grouped.set(item.tag, []);
@@ -40,15 +41,25 @@ function render(filter = "") {
       body.className = "operation-body";
       const metadata = document.createElement("div");
       metadata.className = "operation-meta";
-      metadata.append(Object.assign(text(item.operation.operationId), { className: "pill" }));
-      metadata.append(Object.assign(text(item.operation.security ? "authenticated" : "public"), { className: "pill" }));
+      metadata.append(
+        Object.assign(text(item.operation.operationId), { className: "pill" }),
+      );
+      metadata.append(
+        Object.assign(
+          text(item.operation.security ? "authenticated" : "public"),
+          { className: "pill" },
+        ),
+      );
       const description = document.createElement("p");
-      description.textContent = item.operation.description || item.operation.summary || "";
+      description.textContent =
+        item.operation.description || item.operation.summary || "";
       const responseTitle = document.createElement("strong");
       responseTitle.textContent = "Responses";
       const responses = document.createElement("div");
       responses.className = "response-list";
-      for (const [status, response] of Object.entries(item.operation.responses || {})) {
+      for (const [status, response] of Object.entries(
+        item.operation.responses || {},
+      )) {
         const badge = text(`${status} ${response.description || ""}`);
         badge.className = "pill";
         responses.append(badge);
@@ -63,21 +74,36 @@ function render(filter = "") {
 
 fetch("/openapi.yaml")
   .then((response) => {
-    if (!response.ok) throw new Error(`OpenAPI request returned ${response.status}`);
+    if (!response.ok)
+      throw new Error(`OpenAPI request returned ${response.status}`);
     return response.json();
   })
   .then((spec) => {
-    document.getElementById("apiTitle").textContent = `${spec.info.title} ${spec.info.version}`;
-    document.getElementById("apiDescription").textContent = spec.info.description;
+    document.getElementById("apiTitle").textContent =
+      `${spec.info.title} ${spec.info.version}`;
+    document.getElementById("apiDescription").textContent =
+      spec.info.description;
     for (const [path, item] of Object.entries(spec.paths)) {
       for (const method of methods) {
         if (!item[method]) continue;
         const operation = item[method];
         const tag = (operation.tags && operation.tags[0]) || "Other";
-        operations.push({ path, method, operation, tag, search: `${path} ${method} ${tag} ${operation.summary || ""}`.toLowerCase() });
+        operations.push({
+          path,
+          method,
+          operation,
+          tag,
+          search:
+            `${path} ${method} ${tag} ${operation.summary || ""}`.toLowerCase(),
+        });
       }
     }
-    operations.sort((a, b) => a.tag.localeCompare(b.tag) || a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+    operations.sort(
+      (a, b) =>
+        a.tag.localeCompare(b.tag) ||
+        a.path.localeCompare(b.path) ||
+        a.method.localeCompare(b.method),
+    );
     render();
   })
   .catch((error) => {

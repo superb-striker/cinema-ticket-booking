@@ -6,50 +6,185 @@
     <meta name="theme-color" content="#171a20" />
     <title>Ticket Scanner · Cinema Booking</title>
     <style>
-      :root { color-scheme: dark; --bg:#0d0f12; --panel:#171a20; --line:#343a46; --text:#eef1f5; --muted:#9ba3b1; --brand:#65d1ff; --ok:#3ccc82; --bad:#ff8181; }
-      * { box-sizing:border-box; }
-      body { margin:0; background:var(--bg); color:var(--text); font:16px system-ui,sans-serif; }
-      main { width:min(680px,calc(100% - 24px)); margin:24px auto; }
-      .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }
-      .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-      label { display:grid; gap:7px; flex:1; color:var(--muted); }
-      input,button { border:1px solid var(--line); border-radius:8px; padding:11px 13px; font:inherit; }
-      input { min-width:0; width:100%; background:#101318; color:var(--text); }
-      button { background:#252a33; color:var(--text); cursor:pointer; }
-      button.primary { border:0; background:var(--brand); color:#06141b; font-weight:700; }
-      button:disabled { opacity:.5; cursor:not-allowed; }
-      button:focus-visible,input:focus-visible { outline:3px solid var(--brand); outline-offset:2px; }
-      video { width:100%; min-height:240px; max-height:60vh; object-fit:cover; background:#050607; border-radius:12px; margin:14px 0; }
-      .hidden { display:none!important; }
-      .muted { color:var(--muted); }
-      #result { min-height:72px; border-left:5px solid var(--line); }
-      #result.success { border-color:var(--ok); }
-      #result.error { border-color:var(--bad); }
-      #result h2 { margin-top:0; }
-      @media(max-width:480px) { .row>* { width:100%; } main { margin-top:12px; } }
+      :root {
+        color-scheme: dark;
+        --bg: #0d0f12;
+        --panel: #171a20;
+        --line: #343a46;
+        --text: #eef1f5;
+        --muted: #9ba3b1;
+        --brand: #65d1ff;
+        --ok: #3ccc82;
+        --bad: #ff8181;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px system-ui,
+          sans-serif;
+      }
+      main {
+        width: min(680px, calc(100% - 24px));
+        margin: 24px auto;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      label {
+        display: grid;
+        gap: 7px;
+        flex: 1;
+        color: var(--muted);
+      }
+      input,
+      button {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 11px 13px;
+        font: inherit;
+      }
+      input {
+        min-width: 0;
+        width: 100%;
+        background: #101318;
+        color: var(--text);
+      }
+      button {
+        background: #252a33;
+        color: var(--text);
+        cursor: pointer;
+      }
+      button.primary {
+        border: 0;
+        background: var(--brand);
+        color: #06141b;
+        font-weight: 700;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 3px solid var(--brand);
+        outline-offset: 2px;
+      }
+      video {
+        width: 100%;
+        min-height: 240px;
+        max-height: 60vh;
+        object-fit: cover;
+        background: #050607;
+        border-radius: 12px;
+        margin: 14px 0;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      #result {
+        min-height: 72px;
+        border-left: 5px solid var(--line);
+      }
+      #result.success {
+        border-color: var(--ok);
+      }
+      #result.error {
+        border-color: var(--bad);
+      }
+      #result h2 {
+        margin-top: 0;
+      }
+      @media (max-width: 480px) {
+        .row > * {
+          width: 100%;
+        }
+        main {
+          margin-top: 12px;
+        }
+      }
     </style>
   </head>
   <body>
     <main>
-      <header><h1>Ticket scanner</h1><p class="muted">Staff admission console · online validation required</p></header>
+      <header>
+        <h1>Ticket scanner</h1>
+        <p class="muted">
+          Staff admission console · online validation required
+        </p>
+      </header>
       <section class="panel">
-        <label>Scanner API key<input id="scannerKey" type="password" autocomplete="off" spellcheck="false" /></label>
-        <label class="row" style="margin-top:10px"><input id="rememberKey" type="checkbox" style="width:auto" /> Keep key for this browser tab</label>
+        <label
+          >Scanner API key<input
+            id="scannerKey"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+        /></label>
+        <label class="row" style="margin-top: 10px"
+          ><input id="rememberKey" type="checkbox" style="width: auto" /> Keep
+          key for this browser tab</label
+        >
       </section>
       <section class="panel">
         <div class="row">
-          <button id="startCamera" class="primary" type="button">Start camera</button>
-          <button id="stopCamera" class="hidden" type="button">Stop camera</button>
+          <button id="startCamera" class="primary" type="button">
+            Start camera
+          </button>
+          <button id="stopCamera" class="hidden" type="button">
+            Stop camera
+          </button>
         </div>
-        <video id="camera" class="hidden" playsinline muted aria-label="Camera preview"></video>
-        <p id="cameraHelp" class="muted">Camera scanning requires a supported browser and HTTPS, except on localhost.</p>
+        <video
+          id="camera"
+          class="hidden"
+          playsinline
+          muted
+          aria-label="Camera preview"
+        ></video>
+        <p id="cameraHelp" class="muted">
+          Camera scanning requires a supported browser and HTTPS, except on
+          localhost.
+        </p>
         <form id="manualForm">
-          <label>QR code contents<input id="ticketCode" autocomplete="off" placeholder="Paste the scanned ticket code" required /></label>
-          <button class="primary" type="submit" style="margin-top:10px">Validate ticket</button>
+          <label
+            >QR code contents<input
+              id="ticketCode"
+              autocomplete="off"
+              placeholder="Paste the scanned ticket code"
+              required
+          /></label>
+          <button class="primary" type="submit" style="margin-top: 10px">
+            Validate ticket
+          </button>
         </form>
       </section>
-      <section id="result" class="panel" role="status" aria-live="assertive" aria-atomic="true">
-        <h2>Ready</h2><p class="muted">Scan a ticket to validate admission.</p>
+      <section
+        id="result"
+        class="panel"
+        role="status"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        <h2>Ready</h2>
+        <p class="muted">Scan a ticket to validate admission.</p>
       </section>
     </main>
     <script src="/scanner.js?v=1" defer></script>

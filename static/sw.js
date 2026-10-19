@@ -17,7 +17,13 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== VERSION).map((key) => caches.delete(key))))
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== VERSION)
+            .map((key) => caches.delete(key)),
+        ),
+      )
       .then(() => self.clients.claim()),
   );
 });
@@ -26,7 +32,11 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin || url.pathname.endsWith("/seat-events")) return;
+  if (
+    url.origin !== self.location.origin ||
+    url.pathname.endsWith("/seat-events")
+  )
+    return;
 
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => caches.match("/")));
@@ -44,7 +54,10 @@ self.addEventListener("fetch", (event) => {
 });
 
 function isPublicCatalogRequest(url) {
-  return url.pathname === "/api/v1/screenings" || /^\/api\/v1\/screenings\/[^/]+\/seats$/.test(url.pathname);
+  return (
+    url.pathname === "/api/v1/screenings" ||
+    /^\/api\/v1\/screenings\/[^/]+\/seats$/.test(url.pathname)
+  );
 }
 
 async function networkFirst(request) {
@@ -64,9 +77,11 @@ async function cacheFirst(request) {
   const cache = await caches.open(VERSION);
   const cached = await cache.match(request);
   if (cached) {
-    fetch(request).then((response) => {
-      if (response.ok) cache.put(request, response);
-    }).catch(() => {});
+    fetch(request)
+      .then((response) => {
+        if (response.ok) cache.put(request, response);
+      })
+      .catch(() => {});
     return cached;
   }
   const response = await fetch(request);

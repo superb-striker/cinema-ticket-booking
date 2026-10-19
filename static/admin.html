@@ -12,7 +12,9 @@
       <aside>
         <div class="brand">Cinema Admin</div>
         <nav aria-label="Administration sections">
-          <button class="active" data-panel="catalog">Movies &amp; cinemas</button>
+          <button class="active" data-panel="catalog">
+            Movies &amp; cinemas
+          </button>
           <button data-panel="venues">Auditoriums &amp; pricing</button>
           <button data-panel="shows">Shows &amp; seat blocks</button>
           <button data-panel="promotions">Promotions</button>
@@ -28,119 +30,704 @@
       </aside>
       <main>
         <div class="topbar">
-          <div><h1 id="pageTitle">Movies &amp; cinemas</h1><div class="muted">Changes are recorded in the administrator audit log.</div></div>
-          <div class="topbar-actions"><button id="refresh" type="button">Refresh</button></div>
+          <div>
+            <h1 id="pageTitle">Movies &amp; cinemas</h1>
+            <div class="muted">
+              Changes are recorded in the administrator audit log.
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <button id="refresh" type="button">Refresh</button>
+          </div>
         </div>
-        <div id="message" class="message" role="status" aria-live="polite"></div>
+        <div
+          id="message"
+          class="message"
+          role="status"
+          aria-live="polite"
+        ></div>
         <section id="accessDenied" class="card hidden">
           <h2>Administrator access required</h2>
-          <p>You must sign in with an administrator or support account before using this console.</p>
+          <p>
+            You must sign in with an administrator or support account before
+            using this console.
+          </p>
           <a class="button" href="/">Return to sign in</a>
         </section>
 
         <section id="catalog" class="panel active" data-admin-only>
           <div class="split">
             <form id="movieForm" class="card">
-              <h2>Movie</h2><input id="movieID" type="hidden" />
+              <h2>Movie</h2>
+              <input id="movieID" type="hidden" />
               <div class="form-grid">
-                <label>Slug<input id="movieSlug" required pattern="[a-z0-9-]+" /></label>
+                <label
+                  >Slug<input id="movieSlug" required pattern="[a-z0-9-]+"
+                /></label>
                 <label>Title<input id="movieTitle" required /></label>
-                <label>Duration (minutes)<input id="movieDuration" type="number" min="1" max="600" required /></label>
+                <label
+                  >Duration (minutes)<input
+                    id="movieDuration"
+                    type="number"
+                    min="1"
+                    max="600"
+                    required
+                /></label>
                 <label>Language<input id="movieLanguage" required /></label>
-                <label>Certificate<input id="movieCertificate" required /></label>
-                <label><span>Active</span><input id="movieActive" type="checkbox" checked /></label>
+                <label
+                  >Certificate<input id="movieCertificate" required
+                /></label>
+                <label
+                  ><span>Active</span
+                  ><input id="movieActive" type="checkbox" checked
+                /></label>
               </div>
-              <div class="actions" style="margin-top:14px"><button class="primary" type="submit">Save movie</button><button id="movieReset" type="button">Clear</button></div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary" type="submit">Save movie</button
+                ><button id="movieReset" type="button">Clear</button>
+              </div>
             </form>
-            <div class="card"><div class="card-head"><h2>Movies</h2><span id="movieCount" class="muted"></span></div><div class="table-wrap"><table><thead><tr><th>Movie</th><th>Language</th><th>Runtime</th><th>Status</th><th>Actions</th></tr></thead><tbody id="movieRows"></tbody></table></div></div>
+            <div class="card">
+              <div class="card-head">
+                <h2>Movies</h2>
+                <span id="movieCount" class="muted"></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Movie</th>
+                      <th>Language</th>
+                      <th>Runtime</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="movieRows"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
           <div class="split">
             <form id="cinemaForm" class="card">
-              <h2>Cinema</h2><input id="cinemaID" type="hidden" />
+              <h2>Cinema</h2>
+              <input id="cinemaID" type="hidden" />
               <div class="form-grid">
                 <label>Name<input id="cinemaName" required /></label>
-                <label>Timezone<input id="cinemaTimezone" value="Asia/Kolkata" required /></label>
-                <label class="wide">Address<input id="cinemaAddress" required /></label>
+                <label
+                  >Timezone<input
+                    id="cinemaTimezone"
+                    value="Asia/Kolkata"
+                    required
+                /></label>
+                <label class="wide"
+                  >Address<input id="cinemaAddress" required
+                /></label>
                 <label>City<input id="cinemaCity" required /></label>
                 <label>Region<input id="cinemaRegion" required /></label>
                 <label>Postal code<input id="cinemaPostal" required /></label>
-                <label>Cancellation cutoff (minutes)<input id="cinemaCutoff" type="number" min="0" max="10080" value="120" required /></label>
-                <label>Refund percentage<input id="cinemaRefund" type="number" min="1" max="100" value="100" required /></label>
-                <label><span>Active</span><input id="cinemaActive" type="checkbox" checked /></label>
+                <label
+                  >Cancellation cutoff (minutes)<input
+                    id="cinemaCutoff"
+                    type="number"
+                    min="0"
+                    max="10080"
+                    value="120"
+                    required
+                /></label>
+                <label
+                  >Refund percentage<input
+                    id="cinemaRefund"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value="100"
+                    required
+                /></label>
+                <label
+                  ><span>Active</span
+                  ><input id="cinemaActive" type="checkbox" checked
+                /></label>
               </div>
-              <div class="actions" style="margin-top:14px"><button class="primary" type="submit">Save cinema</button><button id="cinemaReset" type="button">Clear</button></div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary" type="submit">Save cinema</button
+                ><button id="cinemaReset" type="button">Clear</button>
+              </div>
             </form>
-            <div class="card"><div class="card-head"><h2>Cinemas</h2><span id="cinemaCount" class="muted"></span></div><div class="table-wrap"><table><thead><tr><th>Cinema</th><th>Location</th><th>Policy</th><th>Status</th><th>Actions</th></tr></thead><tbody id="cinemaRows"></tbody></table></div></div>
+            <div class="card">
+              <div class="card-head">
+                <h2>Cinemas</h2>
+                <span id="cinemaCount" class="muted"></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Cinema</th>
+                      <th>Location</th>
+                      <th>Policy</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cinemaRows"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
         <section id="venues" class="panel" data-admin-only>
           <div class="split">
-            <form id="auditoriumForm" class="card"><h2>Auditorium</h2><input id="auditoriumID" type="hidden" /><div class="form-grid"><label>Cinema<select id="auditoriumCinema" required></select></label><label>Name<input id="auditoriumName" required /></label><label>Format<input id="auditoriumFormat" placeholder="2D, 3D, IMAX" required /></label><label><span>Active</span><input id="auditoriumActive" type="checkbox" checked /></label></div><div class="actions" style="margin-top:14px"><button class="primary">Save auditorium</button><button id="auditoriumReset" type="button">Clear</button></div></form>
-            <div class="card"><div class="card-head"><h2>Auditoriums</h2><span id="auditoriumCount" class="muted"></span></div><div class="table-wrap"><table><thead><tr><th>Name</th><th>Cinema</th><th>Format</th><th>Status</th><th>Actions</th></tr></thead><tbody id="auditoriumRows"></tbody></table></div></div>
+            <form id="auditoriumForm" class="card">
+              <h2>Auditorium</h2>
+              <input id="auditoriumID" type="hidden" />
+              <div class="form-grid">
+                <label
+                  >Cinema<select id="auditoriumCinema" required></select></label
+                ><label>Name<input id="auditoriumName" required /></label
+                ><label
+                  >Format<input
+                    id="auditoriumFormat"
+                    placeholder="2D, 3D, IMAX"
+                    required /></label
+                ><label
+                  ><span>Active</span
+                  ><input id="auditoriumActive" type="checkbox" checked
+                /></label>
+              </div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary">Save auditorium</button
+                ><button id="auditoriumReset" type="button">Clear</button>
+              </div>
+            </form>
+            <div class="card">
+              <div class="card-head">
+                <h2>Auditoriums</h2>
+                <span id="auditoriumCount" class="muted"></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Cinema</th>
+                      <th>Format</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="auditoriumRows"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
           <div class="split">
-            <form id="layoutForm" class="card"><h2>Seat layout</h2><p class="muted">Replacing a layout is blocked while future shows are scheduled.</p><label>Auditorium<select id="layoutAuditorium" required></select></label><label style="margin-top:12px">Seats as JSON<textarea id="layoutJSON" required placeholder='[{"id":"A1","row":"A","number":1,"category":"standard","accessible":false}]'></textarea></label><div class="actions" style="margin-top:14px"><button id="loadLayout" type="button">Load layout</button><button class="primary">Replace layout</button></div></form>
-            <form id="tierForm" class="card"><h2>Pricing tier</h2><input id="tierID" type="hidden" /><div class="form-grid"><label>Cinema<select id="tierCinema" required></select></label><label>Name<input id="tierName" required /></label><label>Seat category<input id="tierCategory" placeholder="premium" required /></label><label><span>Active</span><input id="tierActive" type="checkbox" checked /></label></div><div class="actions" style="margin-top:14px"><button class="primary">Save tier</button><button id="tierReset" type="button">Clear</button></div><div class="table-wrap" style="margin-top:18px"><table><thead><tr><th>Tier</th><th>Cinema</th><th>Category</th><th>Actions</th></tr></thead><tbody id="tierRows"></tbody></table></div></form>
+            <form id="layoutForm" class="card">
+              <h2>Seat layout</h2>
+              <p class="muted">
+                Replacing a layout is blocked while future shows are scheduled.
+              </p>
+              <label
+                >Auditorium<select
+                  id="layoutAuditorium"
+                  required
+                ></select></label
+              ><label style="margin-top: 12px"
+                >Seats as JSON<textarea
+                  id="layoutJSON"
+                  required
+                  placeholder='[{"id":"A1","row":"A","number":1,"category":"standard","accessible":false}]'
+                ></textarea>
+              </label>
+              <div class="actions" style="margin-top: 14px">
+                <button id="loadLayout" type="button">Load layout</button
+                ><button class="primary">Replace layout</button>
+              </div>
+            </form>
+            <form id="tierForm" class="card">
+              <h2>Pricing tier</h2>
+              <input id="tierID" type="hidden" />
+              <div class="form-grid">
+                <label>Cinema<select id="tierCinema" required></select></label
+                ><label>Name<input id="tierName" required /></label
+                ><label
+                  >Seat category<input
+                    id="tierCategory"
+                    placeholder="premium"
+                    required /></label
+                ><label
+                  ><span>Active</span
+                  ><input id="tierActive" type="checkbox" checked
+                /></label>
+              </div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary">Save tier</button
+                ><button id="tierReset" type="button">Clear</button>
+              </div>
+              <div class="table-wrap" style="margin-top: 18px">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Tier</th>
+                      <th>Cinema</th>
+                      <th>Category</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tierRows"></tbody>
+                </table>
+              </div>
+            </form>
           </div>
         </section>
 
         <section id="shows" class="panel" data-admin-only>
           <div class="split">
-            <form id="showForm" class="card"><h2>Show</h2><input id="showID" type="hidden" /><div class="form-grid"><label>Movie<select id="showMovie" required></select></label><label>Auditorium<select id="showAuditorium" required></select></label><label>Starts at<input id="showStarts" type="datetime-local" required /></label><label>Sales end<input id="showSalesEnd" type="datetime-local" required /></label><label>Base price (paise)<input id="showPrice" type="number" min="1" required /></label><label>Currency<input id="showCurrency" value="INR" minlength="3" maxlength="3" required /></label><label>Status<select id="showStatus"><option>scheduled</option><option>cancelled</option><option>completed</option></select></label><label class="wide">Tier prices as JSON<textarea id="showTierPrices" placeholder='[{"pricing_tier_id":"…","price_paise":45000}]'>[]</textarea></label></div><div class="actions" style="margin-top:14px"><button class="primary">Save show</button><button id="showReset" type="button">Clear</button></div></form>
-            <div class="card"><div class="card-head"><h2>Shows</h2><span id="showCount" class="muted"></span></div><div class="table-wrap"><table><thead><tr><th>Movie</th><th>Venue</th><th>Starts</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead><tbody id="showRows"></tbody></table></div></div>
+            <form id="showForm" class="card">
+              <h2>Show</h2>
+              <input id="showID" type="hidden" />
+              <div class="form-grid">
+                <label>Movie<select id="showMovie" required></select></label
+                ><label
+                  >Auditorium<select
+                    id="showAuditorium"
+                    required
+                  ></select></label
+                ><label
+                  >Starts at<input
+                    id="showStarts"
+                    type="datetime-local"
+                    required /></label
+                ><label
+                  >Sales end<input
+                    id="showSalesEnd"
+                    type="datetime-local"
+                    required /></label
+                ><label
+                  >Base price (paise)<input
+                    id="showPrice"
+                    type="number"
+                    min="1"
+                    required /></label
+                ><label
+                  >Currency<input
+                    id="showCurrency"
+                    value="INR"
+                    minlength="3"
+                    maxlength="3"
+                    required /></label
+                ><label
+                  >Status<select id="showStatus">
+                    <option>scheduled</option>
+                    <option>cancelled</option>
+                    <option>completed</option>
+                  </select></label
+                ><label class="wide"
+                  >Tier prices as JSON<textarea
+                    id="showTierPrices"
+                    placeholder='[{"pricing_tier_id":"…","price_paise":45000}]'
+                  >
+[]</textarea>
+                </label>
+              </div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary">Save show</button
+                ><button id="showReset" type="button">Clear</button>
+              </div>
+            </form>
+            <div class="card">
+              <div class="card-head">
+                <h2>Shows</h2>
+                <span id="showCount" class="muted"></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Movie</th>
+                      <th>Venue</th>
+                      <th>Starts</th>
+                      <th>Price</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="showRows"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
           <div class="split">
-            <form id="blockForm" class="card"><h2>Block a seat</h2><div class="form-grid"><label>Auditorium<select id="blockAuditorium" required></select></label><label>Show (optional)<select id="blockShow"><option value="">All shows</option></select></label><label>Seat ID<input id="blockSeat" placeholder="A1" required /></label><label>Type<select id="blockType"><option>maintenance</option><option>accessibility</option><option>other</option></select></label><label class="wide">Reason<input id="blockReason" required /></label><label>Expires at (optional)<input id="blockExpires" type="datetime-local" /></label></div><div class="actions" style="margin-top:14px"><button class="primary">Block seat</button></div></form>
-            <div class="card"><div class="card-head"><h2>Seat blocks</h2><button id="loadBlocks" type="button">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Seat</th><th>Scope</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead><tbody id="blockRows"></tbody></table></div></div>
+            <form id="blockForm" class="card">
+              <h2>Block a seat</h2>
+              <div class="form-grid">
+                <label
+                  >Auditorium<select
+                    id="blockAuditorium"
+                    required
+                  ></select></label
+                ><label
+                  >Show (optional)<select id="blockShow">
+                    <option value="">All shows</option>
+                  </select></label
+                ><label
+                  >Seat ID<input
+                    id="blockSeat"
+                    placeholder="A1"
+                    required /></label
+                ><label
+                  >Type<select id="blockType">
+                    <option>maintenance</option>
+                    <option>accessibility</option>
+                    <option>other</option>
+                  </select></label
+                ><label class="wide"
+                  >Reason<input id="blockReason" required /></label
+                ><label
+                  >Expires at (optional)<input
+                    id="blockExpires"
+                    type="datetime-local"
+                /></label>
+              </div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary">Block seat</button>
+              </div>
+            </form>
+            <div class="card">
+              <div class="card-head">
+                <h2>Seat blocks</h2>
+                <button id="loadBlocks" type="button">Refresh</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Seat</th>
+                      <th>Scope</th>
+                      <th>Reason</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="blockRows"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
         <section id="promotions" class="panel" data-admin-only>
           <div class="split">
-            <form id="promotionForm" class="card"><h2>Promotion</h2><input id="promotionID" type="hidden" /><div class="form-grid"><label>Cinema<select id="promotionCinema"><option value="">All cinemas</option></select></label><label>Code<input id="promotionCode" maxlength="32" required /></label><label>Name<input id="promotionName" required /></label><label>Discount type<select id="promotionType"><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label><label>Discount value<input id="promotionValue" type="number" min="1" required /></label><label>Minimum subtotal (paise)<input id="promotionMinimum" type="number" min="0" value="0" required /></label><label>Maximum discount (paise)<input id="promotionMaximum" type="number" min="1" /></label><label>Starts at<input id="promotionStarts" type="datetime-local" required /></label><label>Ends at<input id="promotionEnds" type="datetime-local" required /></label><label>Maximum redemptions<input id="promotionRedemptions" type="number" min="1" /></label><label>Per-customer limit<input id="promotionCustomerLimit" type="number" min="1" value="1" required /></label><label><span>Active</span><input id="promotionActive" type="checkbox" checked /></label></div><div class="actions" style="margin-top:14px"><button class="primary">Save promotion</button><button id="promotionReset" type="button">Clear</button></div></form>
-            <div class="card"><div class="card-head"><h2>Promotions</h2><span id="promotionCount" class="muted"></span></div><div class="table-wrap"><table><thead><tr><th>Code</th><th>Scope</th><th>Discount</th><th>Window</th><th>Usage</th><th>Actions</th></tr></thead><tbody id="promotionRows"></tbody></table></div></div>
+            <form id="promotionForm" class="card">
+              <h2>Promotion</h2>
+              <input id="promotionID" type="hidden" />
+              <div class="form-grid">
+                <label
+                  >Cinema<select id="promotionCinema">
+                    <option value="">All cinemas</option>
+                  </select></label
+                ><label
+                  >Code<input
+                    id="promotionCode"
+                    maxlength="32"
+                    required /></label
+                ><label>Name<input id="promotionName" required /></label
+                ><label
+                  >Discount type<select id="promotionType">
+                    <option value="percentage">Percentage</option>
+                    <option value="fixed">Fixed amount</option>
+                  </select></label
+                ><label
+                  >Discount value<input
+                    id="promotionValue"
+                    type="number"
+                    min="1"
+                    required /></label
+                ><label
+                  >Minimum subtotal (paise)<input
+                    id="promotionMinimum"
+                    type="number"
+                    min="0"
+                    value="0"
+                    required /></label
+                ><label
+                  >Maximum discount (paise)<input
+                    id="promotionMaximum"
+                    type="number"
+                    min="1" /></label
+                ><label
+                  >Starts at<input
+                    id="promotionStarts"
+                    type="datetime-local"
+                    required /></label
+                ><label
+                  >Ends at<input
+                    id="promotionEnds"
+                    type="datetime-local"
+                    required /></label
+                ><label
+                  >Maximum redemptions<input
+                    id="promotionRedemptions"
+                    type="number"
+                    min="1" /></label
+                ><label
+                  >Per-customer limit<input
+                    id="promotionCustomerLimit"
+                    type="number"
+                    min="1"
+                    value="1"
+                    required /></label
+                ><label
+                  ><span>Active</span
+                  ><input id="promotionActive" type="checkbox" checked
+                /></label>
+              </div>
+              <div class="actions" style="margin-top: 14px">
+                <button class="primary">Save promotion</button
+                ><button id="promotionReset" type="button">Clear</button>
+              </div>
+            </form>
+            <div class="card">
+              <div class="card-head">
+                <h2>Promotions</h2>
+                <span id="promotionCount" class="muted"></span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Scope</th>
+                      <th>Discount</th>
+                      <th>Window</th>
+                      <th>Usage</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="promotionRows"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
         <section id="support" class="panel">
           <div class="card">
-            <div class="card-head"><h2>Booking lookup</h2><span class="muted">Search the latest 100 matching bookings</span></div>
+            <div class="card-head">
+              <h2>Booking lookup</h2>
+              <span class="muted">Search the latest 100 matching bookings</span>
+            </div>
             <form id="bookingSearch" class="form-grid">
-              <label class="wide">Order, email, or provider ID<input id="bookingQuery" type="search" /></label>
-              <label>Status<select id="bookingStatus"><option value="">All statuses</option><option>payment_pending</option><option>confirmed</option><option>payment_failed</option><option>expired</option><option>refund_pending</option><option>refunded</option><option>cancelled</option></select></label>
-              <div class="actions"><button class="primary">Search bookings</button></div>
+              <label class="wide"
+                >Order, email, or provider ID<input
+                  id="bookingQuery"
+                  type="search"
+              /></label>
+              <label
+                >Status<select id="bookingStatus">
+                  <option value="">All statuses</option>
+                  <option>payment_pending</option>
+                  <option>confirmed</option>
+                  <option>payment_failed</option>
+                  <option>expired</option>
+                  <option>refund_pending</option>
+                  <option>refunded</option>
+                  <option>cancelled</option>
+                </select></label
+              >
+              <div class="actions">
+                <button class="primary">Search bookings</button>
+              </div>
             </form>
-            <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>Booking</th><th>Customer</th><th>Show</th><th>Seats</th><th>Payment</th><th>Status</th><th></th></tr></thead><tbody id="bookingRows"></tbody></table></div>
+            <div class="table-wrap" style="margin-top: 16px">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Booking</th>
+                    <th>Customer</th>
+                    <th>Show</th>
+                    <th>Seats</th>
+                    <th>Payment</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="bookingRows"></tbody>
+              </table>
+            </div>
           </div>
           <div id="bookingWorkspace" class="split hidden">
             <div class="card">
-              <div class="card-head"><h2>Support actions</h2><span id="selectedBookingStatus" class="badge"></span></div>
+              <div class="card-head">
+                <h2>Support actions</h2>
+                <span id="selectedBookingStatus" class="badge"></span>
+              </div>
               <div id="selectedBooking" class="muted"></div>
-              <form id="cancelForm" style="margin-top:18px"><label>Cancellation reason<textarea id="cancelReason" maxlength="500" required></textarea></label><label id="refundOverrideLabel" style="margin-top:10px">Refund percentage override (admin only)<input id="refundOverride" type="number" min="0" max="100" /></label><div class="actions" style="margin-top:12px"><button class="danger">Cancel booking</button><button id="fullRefund" type="button">Request full refund</button></div></form>
+              <form id="cancelForm" style="margin-top: 18px">
+                <label
+                  >Cancellation reason<textarea
+                    id="cancelReason"
+                    maxlength="500"
+                    required
+                  ></textarea></label
+                ><label id="refundOverrideLabel" style="margin-top: 10px"
+                  >Refund percentage override (admin only)<input
+                    id="refundOverride"
+                    type="number"
+                    min="0"
+                    max="100"
+                /></label>
+                <div class="actions" style="margin-top: 12px">
+                  <button class="danger">Cancel booking</button
+                  ><button id="fullRefund" type="button">
+                    Request full refund
+                  </button>
+                </div>
+              </form>
             </div>
             <div class="card">
               <h2>Internal notes</h2>
-              <form id="noteForm"><label>New note<textarea id="supportNote" maxlength="2000" required></textarea></label><button class="primary" style="margin-top:10px">Add note</button></form>
-              <div id="supportNotes" style="margin-top:18px"></div>
+              <form id="noteForm">
+                <label
+                  >New note<textarea
+                    id="supportNote"
+                    maxlength="2000"
+                    required
+                  ></textarea></label
+                ><button class="primary" style="margin-top: 10px">
+                  Add note
+                </button>
+              </form>
+              <div id="supportNotes" style="margin-top: 18px"></div>
             </div>
           </div>
         </section>
         <section id="reports" class="panel" data-admin-only>
           <div class="card">
-            <div class="card-head"><h2>Report filters</h2><span class="muted">Maximum range: 366 days</span></div>
-            <form id="reportFilters" class="form-grid"><label>From<input id="reportFrom" type="date" required /></label><label>To<input id="reportTo" type="date" required /></label><label>Cinema<select id="reportCinema"><option value="">All cinemas</option></select></label><div class="actions"><button class="primary">Run reports</button></div></form>
+            <div class="card-head">
+              <h2>Report filters</h2>
+              <span class="muted">Maximum range: 366 days</span>
+            </div>
+            <form id="reportFilters" class="form-grid">
+              <label>From<input id="reportFrom" type="date" required /></label
+              ><label>To<input id="reportTo" type="date" required /></label
+              ><label
+                >Cinema<select id="reportCinema">
+                  <option value="">All cinemas</option>
+                </select></label
+              >
+              <div class="actions">
+                <button class="primary">Run reports</button>
+              </div>
+            </form>
           </div>
-          <div id="reportMetrics" class="metric-grid" style="margin-bottom:18px"></div>
-          <div class="card"><h2>Revenue by cinema</h2><div class="table-wrap"><table><thead><tr><th>Cinema</th><th>Bookings</th><th>Gross</th><th>Refunds</th><th>Discounts</th><th>Net</th></tr></thead><tbody id="revenueRows"></tbody></table></div></div>
-          <div class="card"><h2>Show occupancy</h2><div class="table-wrap"><table><thead><tr><th>Show</th><th>Cinema</th><th>Starts</th><th>Occupied</th><th>Occupancy</th><th>Ticket revenue</th></tr></thead><tbody id="occupancyRows"></tbody></table></div></div>
-          <div class="split"><div class="card"><h2>Daily sales</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Bookings</th><th>Tickets</th><th>Subtotal</th><th>Discount</th></tr></thead><tbody id="salesRows"></tbody></table></div></div><div class="card"><h2>Payment failures</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Failed</th><th>Expired</th><th>Rate</th><th>Value</th></tr></thead><tbody id="failureRows"></tbody></table></div></div></div>
+          <div
+            id="reportMetrics"
+            class="metric-grid"
+            style="margin-bottom: 18px"
+          ></div>
+          <div class="card">
+            <h2>Revenue by cinema</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Cinema</th>
+                    <th>Bookings</th>
+                    <th>Gross</th>
+                    <th>Refunds</th>
+                    <th>Discounts</th>
+                    <th>Net</th>
+                  </tr>
+                </thead>
+                <tbody id="revenueRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Show occupancy</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Show</th>
+                    <th>Cinema</th>
+                    <th>Starts</th>
+                    <th>Occupied</th>
+                    <th>Occupancy</th>
+                    <th>Ticket revenue</th>
+                  </tr>
+                </thead>
+                <tbody id="occupancyRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="split">
+            <div class="card">
+              <h2>Daily sales</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Bookings</th>
+                      <th>Tickets</th>
+                      <th>Subtotal</th>
+                      <th>Discount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="salesRows"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <h2>Payment failures</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Failed</th>
+                      <th>Expired</th>
+                      <th>Rate</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody id="failureRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </section>
         <section id="users" class="panel" data-admin-only>
           <div class="card">
-            <div class="card-head"><h2>Users &amp; roles</h2><span class="muted">The final administrator cannot be removed.</span></div>
-            <form id="userSearch" class="actions"><input id="userQuery" type="search" placeholder="Search by email" /><button class="primary">Search users</button></form>
-            <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>User</th><th>Ownership</th><th>Roles</th><th>Actions</th></tr></thead><tbody id="userRows"></tbody></table></div>
+            <div class="card-head">
+              <h2>Users &amp; roles</h2>
+              <span class="muted"
+                >The final administrator cannot be removed.</span
+              >
+            </div>
+            <form id="userSearch" class="actions">
+              <input
+                id="userQuery"
+                type="search"
+                placeholder="Search by email"
+              /><button class="primary">Search users</button>
+            </form>
+            <div class="table-wrap" style="margin-top: 16px">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Ownership</th>
+                    <th>Roles</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="userRows"></tbody>
+              </table>
+            </div>
           </div>
         </section>
       </main>
@@ -148,4 +735,3 @@
     <script src="/admin.js?v=2" defer></script>
   </body>
 </html>
-
