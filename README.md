@@ -8,7 +8,7 @@
 
 A cinema booking application built with Go, PostgreSQL, and Redis. Customers can discover screenings, select seats, pay through Razorpay Checkout, manage bookings, and present QR tickets. Cinema operators get an administration console for managing their catalog, screenings, pricing, seat blocks, bookings, refunds, and reports.
 
-The project includes operational foundations for deployment: checked configuration, secure HTTP defaults, structured logs, metrics, optional OpenTelemetry traces, migrations, container hardening, CI, and Kubernetes examples.
+The project includes operational foundations for deployment: checked configuration, secure HTTP defaults, structured logs, metrics, optional OpenTelemetry traces, migrations, container hardening, automated browser workflows, CI, and Kubernetes examples.
 
 ---
 
@@ -82,7 +82,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open [http://localhost:8080](http://localhost:8080), register an account, choose a screening, and select seats. Compose starts PostgreSQL and Redis, runs database migrations, then starts the API. The local database and Redis data are kept in Docker volumes.
+Open [http://localhost:8080](http://localhost:8080), register an account, choose a screening, and select seats. Compose starts PostgreSQL, Redis, and Jaeger, runs database migrations, then starts the API. The local database and Redis data are kept in Docker volumes; Jaeger uses ephemeral in-memory trace storage.
 
 For local development, notifications use `NOTIFICATION_LOG_ONLY=true`; password reset and booking messages appear in the app logs:
 
@@ -193,11 +193,27 @@ go vet ./...
 
 Redis-dependent tests use miniredis; HTTP provider tests use local test servers. Start the Compose stack for manual end-to-end payment and webhook testing.
 
-CI also checks formatting, Staticcheck, Go vulnerability findings, the OpenAPI contract, and a built container image. Run the OpenAPI linter locally with:
+CI also checks formatting, `go vet`, unit and race tests, Staticcheck, Go vulnerability findings, the OpenAPI contract, the production container image, and headless Chrome workflows. The container job fails on fixable high- or critical-severity findings, while the browser job uploads screenshots, console logs, and JUnit reports when a test fails. Dependabot checks Go modules, GitHub Actions, and Docker images weekly.
+
+Run the OpenAPI linter locally with:
 
 ```sh
 npx --yes @redocly/cli@2.64.1 lint static/openapi.yaml
 ```
+
+### Browser workflow tests
+
+The Java 17 Selenium suite exercises customer registration and login, screening and seat flows, booking history, authorization boundaries, and ticket scanning against an isolated Compose stack. With the application ready at `http://localhost:8080`, run:
+
+```sh
+cd qa/selenium
+mvn test \
+  -DbaseUrl=http://localhost:8080 \
+  -Dheadless=true \
+  -DscannerKey=local-scanner-api-key-change-me
+```
+
+Local runs require Java 17, Maven, and Chrome or Chromium. CI uses the Google Chrome installation on the GitHub-hosted Ubuntu runner. See the [Selenium suite guide](qa/selenium/README.md) for browser overrides, database fixture settings, Selenium Grid usage, and the suite's payment-testing limits.
 
 ---
 
