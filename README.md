@@ -162,6 +162,27 @@ Email and phone ownership are verified before booking and refund notifications a
 
 ## Development
 
+### Local tracing
+
+Compose includes [Jaeger 2.22](https://www.jaegertracing.io/docs/2.22/getting-started/) for viewing HTTP server traces. Set these in `.env`:
+
+```dotenv
+OTEL_TRACING_ENABLED=true
+OTEL_SERVICE_NAME=cinema-api
+OTEL_TRACE_SAMPLE_RATIO=1.0
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+OTEL_EXPORTER_OTLP_HEADERS=
+```
+
+Run `docker compose up -d`, browse screenings or sign in, then open
+[Jaeger](http://localhost:16686) and search for service `cinema-api`.
+Allow a few seconds for export. Health and metrics requests are excluded from tracing.
+The UI is bound to localhost; ingestion stays on the Docker network. This local
+Jaeger uses in-memory storage, so restarting it clears traces. Database, Redis,
+and payment-provider calls do not currently have their own spans.
+
+### Checks
+
 Run the Go suite from the repository root:
 
 ```sh

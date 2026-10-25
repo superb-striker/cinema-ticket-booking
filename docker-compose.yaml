@@ -1,6 +1,15 @@
 ---
 
 services:
+  # Local tracing only: traces are lost when Jaeger restarts.
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686"
+    # OTLP HTTP stays on the Compose network; no host ingestion port needed.
+    expose:
+      - "4318"
+
   postgres:
     image: postgres:17.11-alpine3.24
     environment:
@@ -120,6 +129,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
 volumes:
   postgres-data:

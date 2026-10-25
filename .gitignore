@@ -2,3 +2,4 @@
 *.local
 coverage.out
 bin/
+qa/selenium/target/

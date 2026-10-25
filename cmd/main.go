@@ -195,7 +195,15 @@ func main() {
 	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/api-docs.html", http.StatusMovedPermanently)
 	})
-	mux.Handle("GET /", http.FileServer(http.Dir("static")))
+	staticFiles := http.FileServer(http.Dir("static"))
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		staticFiles.ServeHTTP(w, r)
+	}))
 
 	versioned := httpmiddleware.APIVersion("v1", mux)
 	secured, err := httpmiddleware.Security(httpmiddleware.SecurityConfig{RequireHTTPS: cfg.RequireHTTPS,

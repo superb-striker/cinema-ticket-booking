@@ -29,7 +29,7 @@
     const data = await response
       .json()
       .catch(() => ({ error: "Invalid server response" }));
-    if (response.status === 401) {
+    if (response.status === 401 && path !== "/api/v1/auth/login") {
       state.user = null;
       showSignedOut();
       throw new Error("Your session expired. Sign in again to continue.");
