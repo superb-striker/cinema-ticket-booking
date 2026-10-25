@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// MemoryStore is a thread-safe in-memory BookingStore, intended for unit tests and local development. 
+// MemoryStore is a thread-safe in-memory BookingStore, intended for unit tests and local development.
 // It replaces the old MemoryStore and the ConcurentStore.
 type MemoryStore struct {
 	mu       sync.Mutex

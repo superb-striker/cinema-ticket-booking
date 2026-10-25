@@ -18,7 +18,7 @@ const (
 	StatusConfirmed = "confirmed"
 )
 
-// Booking represents a seat hold or a confirmed reservation. 
+// Booking represents a seat hold or a confirmed reservation.
 // ExpiresAt is zero once the booking is confirmed.
 type Booking struct {
 	ID        string    `json:"id"`
