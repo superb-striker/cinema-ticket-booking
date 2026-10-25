@@ -3,6 +3,7 @@ package com.cinema.qa.pages;
 import com.cinema.qa.support.BrowserSession;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.support.ui.ExpectedConditions;
 
 public final class ScannerPage extends BasePage {
     public ScannerPage(WebDriver driver) { super(driver); }
@@ -18,7 +19,7 @@ public final class ScannerPage extends BasePage {
     public void submit() { clickable(By.cssSelector("#manualForm button[type='submit']")).click(); }
 
     public void awaitResult(String heading) {
-        wait.until(d -> d.findElement(By.cssSelector("#result h2")).getText().equals(heading));
+        wait.until(ExpectedConditions.textToBePresentInElementLocated(By.cssSelector("#result h2"), heading));
     }
 
     public String resultText() { return driver.findElement(By.id("result")).getText(); }
