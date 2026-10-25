@@ -103,11 +103,11 @@ jobs:
           done
           docker compose ps
           exit 1
-      - name: Run headless Chromium suite
+      - name: Run headless Chrome suite
         working-directory: qa/selenium
         run: |
-          CHROMIUM_BIN="$(command -v chromium)"
-          mvn --batch-mode test -Dheadless=true -Dchrome.binary="$CHROMIUM_BIN" -DbaseUrl=http://localhost:8080 -DscannerKey=local-scanner-api-key-change-me
+          CHROME_BIN="$(command -v google-chrome)"
+          mvn --batch-mode test -Dheadless=true -Dchrome.binary="$CHROME_BIN" -DbaseUrl=http://localhost:8080 -DscannerKey=local-scanner-api-key-change-me
       - name: Upload browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
