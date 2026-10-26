@@ -110,7 +110,7 @@ jobs:
           mvn --batch-mode test -Dheadless=true -Dchrome.binary="$CHROME_BIN" -DbaseUrl=http://localhost:8080 -DscannerKey=local-scanner-api-key-change-me
       - name: Upload browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: selenium-failures
           path: |
